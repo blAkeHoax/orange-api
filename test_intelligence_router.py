@@ -369,6 +369,108 @@ class TestAPIEndpointRouting(unittest.TestCase):
         )
 
 
+class TestCORSConfiguration(unittest.TestCase):
+    """Test CORS headers, preflight requests, and origin allowlist."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        cls.client = TestClient(app)
+
+    def test_cors_production_frontend_preflight_allowed(self):
+        resp = self.client.options(
+            "/assist",
+            headers={
+                "Origin": "https://orange-ai-steel.vercel.app",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.headers.get("access-control-allow-origin"),
+            "https://orange-ai-steel.vercel.app",
+        )
+        self.assertIn("POST", resp.headers.get("access-control-allow-methods", ""))
+
+    def test_cors_local_vite_allowed(self):
+        resp = self.client.options(
+            "/assist",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.headers.get("access-control-allow-origin"),
+            "http://localhost:5173",
+        )
+
+    def test_cors_local_127_vite_allowed(self):
+        resp = self.client.options(
+            "/assist",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.headers.get("access-control-allow-origin"),
+            "http://127.0.0.1:5173",
+        )
+
+    def test_cors_unrelated_origin_not_allowed(self):
+        resp = self.client.options(
+            "/assist",
+            headers={
+                "Origin": "https://unauthorized-domain.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        self.assertNotEqual(
+            resp.headers.get("access-control-allow-origin"),
+            "https://unauthorized-domain.com",
+        )
+
+    def test_cors_health_endpoint_functional_with_and_without_cors(self):
+        # 1. Without Origin header (e.g. desktop client)
+        resp_no_origin = self.client.get("/health")
+        self.assertEqual(resp_no_origin.status_code, 200)
+        self.assertEqual(resp_no_origin.json(), {"status": "online"})
+        self.assertNotIn("access-control-allow-origin", resp_no_origin.headers)
+
+        # 2. With allowed Origin header (e.g. web frontend)
+        resp_with_origin = self.client.get(
+            "/health",
+            headers={"Origin": "https://orange-ai-steel.vercel.app"},
+        )
+        self.assertEqual(resp_with_origin.status_code, 200)
+        self.assertEqual(resp_with_origin.json(), {"status": "online"})
+        self.assertEqual(
+            resp_with_origin.headers.get("access-control-allow-origin"),
+            "https://orange-ai-steel.vercel.app",
+        )
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_cors_post_assist_functional(self, mock_generate):
+        mock_generate.return_value = "Hello from Orange AI!"
+
+        resp = self.client.post(
+            "/assist",
+            json={"message": "hey"},
+            headers={"Origin": "https://orange-ai-steel.vercel.app"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["reply"], "Hello from Orange AI!")
+        self.assertEqual(
+            resp.headers.get("access-control-allow-origin"),
+            "https://orange-ai-steel.vercel.app",
+        )
+
+
 class TestDesktopDecoupling(unittest.TestCase):
     """Ensure Desktop client is decoupled from router and provider implementations."""
 

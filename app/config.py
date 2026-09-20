@@ -27,5 +27,17 @@ class Settings:
     # Temporary default model for Phase 6A only; capability-based selection deferred to Phase 6B/6C
     DEFAULT_NVIDIA_MODEL: str = os.environ.get("DEFAULT_NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 
+    # CORS configuration
+    _raw_cors = os.environ.get("CORS_ORIGINS")
+    CORS_ORIGINS: list[str] = (
+        [o.strip() for o in _raw_cors.split(",") if o.strip()]
+        if _raw_cors
+        else [
+            "https://orange-ai-steel.vercel.app",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+    )
+
 
 settings = Settings()
