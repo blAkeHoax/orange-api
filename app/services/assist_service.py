@@ -3,6 +3,11 @@ from app.services.llm_service import LLMService
 from app.models.schemas import Message
 
 
+DEFAULT_SYSTEM_INSTRUCTION = (
+    "You are Orange AI, an intelligent, helpful, and concise personal AI assistant."
+)
+
+
 class AssistService:
     """
     Business logic service for the /assist endpoint.
@@ -31,7 +36,11 @@ class AssistService:
         if history:
             history_dicts = [{"role": msg.role, "content": msg.content} for msg in history]
 
-        full_instruction = system_instruction.strip() if system_instruction else None
+        full_instruction = (
+            system_instruction.strip()
+            if system_instruction and system_instruction.strip()
+            else DEFAULT_SYSTEM_INSTRUCTION
+        )
 
         if profile and profile.strip():
             profile_block = f"User Profile & Background:\n{profile.strip()}"

@@ -320,6 +320,54 @@ class TestAPIEndpointRouting(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Unknown model identifier", resp.json()["detail"])
 
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_default_system_instruction_when_omitted(self, mock_generate):
+        mock_generate.return_value = "Hello! I am Orange AI."
+
+        resp = self.client.post("/assist", json={"message": "Introduce yourself"})
+        self.assertEqual(resp.status_code, 200)
+
+        _, kwargs = mock_generate.call_args
+        self.assertEqual(
+            kwargs.get("system_instruction"),
+            "You are Orange AI, an intelligent, helpful, and concise personal AI assistant.",
+        )
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_explicit_system_instruction_preserved(self, mock_generate):
+        mock_generate.return_value = "Custom instruction output"
+        custom_inst = "Custom instruction: output valid JSON only."
+
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Do task",
+                "system_instruction": custom_inst,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        _, kwargs = mock_generate.call_args
+        self.assertEqual(kwargs.get("system_instruction"), custom_inst)
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_empty_system_instruction_falls_back_to_default(self, mock_generate):
+        mock_generate.return_value = "Fallback reply"
+
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Hi",
+                "system_instruction": "   ",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        _, kwargs = mock_generate.call_args
+        self.assertEqual(
+            kwargs.get("system_instruction"),
+            "You are Orange AI, an intelligent, helpful, and concise personal AI assistant.",
+        )
+
 
 class TestDesktopDecoupling(unittest.TestCase):
     """Ensure Desktop client is decoupled from router and provider implementations."""
