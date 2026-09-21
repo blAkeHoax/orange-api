@@ -27,6 +27,10 @@ class Settings:
     # Temporary default model for Phase 6A only; capability-based selection deferred to Phase 6B/6C
     DEFAULT_NVIDIA_MODEL: str = os.environ.get("DEFAULT_NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 
+    # NVIDIA GenAI image generation configuration
+    NVIDIA_GENAI_BASE_URL: str = os.environ.get("NVIDIA_GENAI_BASE_URL", "https://ai.api.nvidia.com/v1/genai")
+    IMAGE_GENERATION_TIMEOUT: float = float(os.environ.get("IMAGE_GENERATION_TIMEOUT", "90.0"))
+
     # CORS configuration
     _raw_cors = os.environ.get("CORS_ORIGINS")
     CORS_ORIGINS: list[str] = (

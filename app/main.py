@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api.assist import router as assist_router
+from app.api.image import router as image_router
 
 app = FastAPI(
     title="Orange API",
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(assist_router)
+app.include_router(image_router)
 
 @app.get("/")
 def root():
