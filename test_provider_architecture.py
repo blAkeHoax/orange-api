@@ -357,9 +357,9 @@ def test_18_nvidia_provider_response_hardening_and_timeout():
     print("18. Testing NVIDIAProvider response hardening & configurable timeout...")
     prov = NVIDIAProvider(api_key="test-api-key")
 
-    # 5. Timeout configuration: uses settings.NVIDIA_INFERENCE_TIMEOUT (default 120.0) when no explicit timeout supplied
+    # 5. Timeout configuration: uses settings.NVIDIA_INFERENCE_TIMEOUT (default 180.0) when no explicit timeout supplied
     assert prov.timeout == settings.NVIDIA_INFERENCE_TIMEOUT
-    assert prov.timeout == 120.0
+    assert prov.timeout == 180.0
 
     # Explicit timeout override wins if provided
     prov_custom = NVIDIAProvider(api_key="test-api-key", timeout=45.0)
