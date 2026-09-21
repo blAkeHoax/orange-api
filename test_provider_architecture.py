@@ -353,6 +353,113 @@ def test_nvidia_provider_mocked_generate():
     print("  NVIDIAProvider mocked HTTP generation passed [OK]")
 
 
+def test_18_nvidia_provider_response_hardening_and_timeout():
+    print("18. Testing NVIDIAProvider response hardening & configurable timeout...")
+    prov = NVIDIAProvider(api_key="test-api-key")
+
+    # 5. Timeout configuration: uses settings.NVIDIA_INFERENCE_TIMEOUT (default 120.0) when no explicit timeout supplied
+    assert prov.timeout == settings.NVIDIA_INFERENCE_TIMEOUT
+    assert prov.timeout == 120.0
+
+    # Explicit timeout override wins if provided
+    prov_custom = NVIDIAProvider(api_key="test-api-key", timeout=45.0)
+    assert prov_custom.timeout == 45.0
+
+    # 1. Normal content response
+    mock_normal = MagicMock()
+    mock_normal.status_code = 200
+    mock_normal.json.return_value = {
+        "choices": [{"message": {"content": "Generated reply"}}]
+    }
+    with patch("httpx.Client.post", return_value=mock_normal):
+        res = prov.generate("Hello normal")
+        assert res == "Generated reply"
+
+    # 2. content=None with finish_reason="length"
+    mock_length = MagicMock()
+    mock_length.status_code = 200
+    mock_length.json.return_value = {
+        "choices": [
+            {
+                "message": {"content": None},
+                "finish_reason": "length",
+            }
+        ]
+    }
+    with patch("httpx.Client.post", return_value=mock_length):
+        try:
+            prov.generate("Length test")
+            assert False, "Expected ProviderError for content=None with finish_reason='length'"
+        except ProviderError as e:
+            assert "exceeded the output token budget" in str(e)
+
+    # 3. content=None without finish_reason="length"
+    mock_none = MagicMock()
+    mock_none.status_code = 200
+    mock_none.json.return_value = {
+        "choices": [
+            {
+                "message": {"content": None},
+                "finish_reason": "stop",
+            }
+        ]
+    }
+    with patch("httpx.Client.post", return_value=mock_none):
+        try:
+            prov.generate("None test")
+            assert False, "Expected ProviderError for content=None"
+        except ProviderError as e:
+            assert "did not contain assistant message content" in str(e)
+
+    # 4. reasoning_content is present but content is None
+    secret_reasoning = "private reasoning text"
+    mock_reasoning = MagicMock()
+    mock_reasoning.status_code = 200
+    mock_reasoning.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "reasoning_content": secret_reasoning,
+                },
+                "finish_reason": "length",
+            }
+        ]
+    }
+    with patch("httpx.Client.post", return_value=mock_reasoning):
+        try:
+            prov.generate("Reasoning leakage test")
+            assert False, "Expected ProviderError when reasoning_content is present but content is None"
+        except ProviderError as e:
+            # Verify reasoning_content is NOT returned and NOT exposed in error message
+            assert secret_reasoning not in str(e)
+
+    print("  NVIDIAProvider response hardening & configurable timeout passed [OK]")
+
+
+class ProviderArchitectureTestCase(unittest.TestCase):
+    def test_all_provider_architecture(self):
+        test_1_nvidia_provider_imports()
+        test_2_nvidia_provider_satisfies_base()
+        test_3_nvidia_base_url_configured()
+        test_4_nvidia_model_ids_correct()
+        test_5_all_four_models_in_registry()
+        test_6_registry_lookup_by_internal_id()
+        test_7_registry_lookup_by_provider_id()
+        test_8_unknown_model_error()
+        test_9_provider_factory_returns_nvidia()
+        test_10_no_gemini_active()
+        test_11_no_ollama_active()
+        test_12_no_fallback_on_failure()
+        test_13_provider_typed_errors()
+        test_14_llm_service_delegation()
+        test_15_desktop_no_nvidia_key()
+        test_16_agent_engine_no_nvidia_dependency()
+        test_17_job_runtime_no_nvidia_dependency()
+        test_18_nvidia_provider_response_hardening_and_timeout()
+        test_nvidia_provider_mocked_generate()
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("ORANGE API: PROVIDER ARCHITECTURE VERIFICATION TESTS (PHASE 6A)")
@@ -374,7 +481,8 @@ if __name__ == "__main__":
     test_15_desktop_no_nvidia_key()
     test_16_agent_engine_no_nvidia_dependency()
     test_17_job_runtime_no_nvidia_dependency()
+    test_18_nvidia_provider_response_hardening_and_timeout()
     test_nvidia_provider_mocked_generate()
     print("=" * 60)
-    print("ALL 17+ PROVIDER ARCHITECTURE TESTS PASSED [OK]")
+    print("ALL 18+ PROVIDER ARCHITECTURE TESTS PASSED [OK]")
     print("=" * 60)

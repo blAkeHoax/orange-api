@@ -46,12 +46,12 @@ class NVIDIAProvider(BaseProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        timeout: float = 60.0,
+        timeout: Optional[float] = None,
     ):
         self.api_key = api_key or settings.NVIDIA_API_KEY
         self.base_url = (base_url or settings.NVIDIA_BASE_URL).rstrip("/")
         self.model = model or settings.DEFAULT_NVIDIA_MODEL
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else settings.NVIDIA_INFERENCE_TIMEOUT
 
     def is_available(self) -> bool:
         """
@@ -122,9 +122,15 @@ class NVIDIAProvider(BaseProvider):
                 choices = data.get("choices", [])
                 if not choices:
                     raise ProviderError("NVIDIA API returned empty choices in response.")
-                message_content = choices[0].get("message", {}).get("content")
+                first_choice = choices[0]
+                message_content = first_choice.get("message", {}).get("content")
                 if message_content is None:
-                    raise ProviderError("NVIDIA API response message content is missing.")
+                    finish_reason = first_choice.get("finish_reason")
+                    if finish_reason == "length":
+                        raise ProviderError(
+                            "NVIDIA model exceeded the output token budget before producing response content."
+                        )
+                    raise ProviderError("NVIDIA API response did not contain assistant message content.")
                 return message_content
 
             # Parse error details safely without leaking credentials
