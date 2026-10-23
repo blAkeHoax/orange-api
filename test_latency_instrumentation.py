@@ -15,6 +15,9 @@ Verifies:
 5. Error and timeout latency capture (request_failed).
 """
 
+import io
+import sys
+import logging
 import unittest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
@@ -27,6 +30,7 @@ from app.utils.latency import (
     get_current_request_id,
     set_current_request_id,
     get_or_create_request_id,
+    setup_latency_logger,
     log_latency,
     get_recorded_timings,
     clear_recorded_timings,
@@ -42,6 +46,7 @@ class TestLatencyInstrumentation(unittest.TestCase):
 
     def tearDown(self):
         clear_recorded_timings()
+        setup_latency_logger(stream=sys.stdout)
 
     def test_request_id_generator_and_context(self):
         """Test correlation ID format and ContextVar setter/getter."""
@@ -196,6 +201,61 @@ class TestLatencyInstrumentation(unittest.TestCase):
         self.assertEqual(failed_rec["status_code"], 504)
         self.assertEqual(failed_rec["error_type"], "ProviderTimeoutError")
         self.assertIn("duration_ms", failed_rec)
+
+    def test_latency_logger_emits_info_to_captured_stream(self):
+        """Verify INFO-level [LATENCY] records are emitted to the configured stream."""
+        capture_stream = io.StringIO()
+        setup_latency_logger(stream=capture_stream)
+
+        rec = log_latency(
+            stage="test_stream_emission",
+            duration_ms=45.67,
+            request_id="req_capture_stream_01",
+            task_type="conversational",
+        )
+
+        output = capture_stream.getvalue()
+        self.assertIn("[LATENCY]", output)
+        self.assertIn("request_id=req_capture_stream_01", output)
+        self.assertIn("stage=test_stream_emission", output)
+        self.assertIn("duration_ms=45.67ms", output)
+        self.assertIn("task_type=conversational", output)
+        self.assertTrue(output.endswith("\n"))
+
+    def test_repeated_logger_setup_prevents_duplicate_handlers_and_duplicate_entries(self):
+        """Verify repeated setup_latency_logger calls do not duplicate handlers or log lines."""
+        capture_stream = io.StringIO()
+
+        # Call setup multiple times
+        for _ in range(5):
+            lat_logger = setup_latency_logger(stream=capture_stream)
+
+        stream_handlers = [
+            h for h in lat_logger.handlers
+            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+        ]
+        self.assertEqual(len(stream_handlers), 1)
+
+        # Log a record and verify it is emitted exactly once
+        log_latency(
+            stage="test_single_entry",
+            request_id="req_single_instance_check",
+            duration_ms=1.23,
+        )
+
+        lines = [line for line in capture_stream.getvalue().splitlines() if "req_single_instance_check" in line]
+        self.assertEqual(len(lines), 1)
+
+    def test_root_and_unrelated_loggers_unaffected(self):
+        """Verify orange_api.latency is isolated: propagate is False and other loggers are untouched."""
+        lat_logger = setup_latency_logger()
+        self.assertEqual(lat_logger.level, logging.INFO)
+        self.assertFalse(lat_logger.propagate)
+
+        # Verify unrelated loggers did not have handlers or propagation altered
+        unrelated = logging.getLogger("orange_api.assist")
+        self.assertFalse(any(h in unrelated.handlers for h in lat_logger.handlers))
+        self.assertTrue(unrelated.propagate)
 
 
 if __name__ == "__main__":

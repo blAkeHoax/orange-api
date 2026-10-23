@@ -11,13 +11,46 @@ Provides minimal, privacy-safe timing instrumentation across the request lifecyc
 All stages are correlated via request_id without logging prompts, replies, or credentials.
 """
 
+import sys
 import time
 import uuid
 import logging
 from contextvars import ContextVar
 from typing import Optional, Dict, Any, List
 
-logger = logging.getLogger("orange_api.latency")
+
+def setup_latency_logger(stream: Optional[Any] = None) -> logging.Logger:
+    """
+    Configure the orange_api.latency logger explicitly at INFO level.
+    Ensures log records reach sys.stdout (captured by Render) without
+    modifying root/unrelated loggers or duplicating handlers on re-import.
+    """
+    lat_logger = logging.getLogger("orange_api.latency")
+    lat_logger.setLevel(logging.INFO)
+    lat_logger.propagate = False
+
+    target_stream = stream if stream is not None else sys.stdout
+
+    # Check if a StreamHandler is already attached
+    existing_handler = None
+    for h in lat_logger.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
+            existing_handler = h
+            break
+
+    if existing_handler is None:
+        handler = logging.StreamHandler(target_stream)
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        lat_logger.addHandler(handler)
+    elif stream is not None:
+        existing_handler.setStream(target_stream)
+        existing_handler.setLevel(logging.INFO)
+
+    return lat_logger
+
+
+logger = setup_latency_logger()
 
 # Context-local correlation ID propagated across async and thread boundaries
 current_request_id: ContextVar[str] = ContextVar("current_request_id", default="")
