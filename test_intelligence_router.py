@@ -45,6 +45,7 @@ from app.services.model_registry import (
     UnknownModelError,
 )
 from app.services.llm_service import LLMService
+from app.services.assist_service import AssistService, DEFAULT_SYSTEM_INSTRUCTION
 
 
 class TestTaskProfileBuilder(unittest.TestCase):
@@ -55,15 +56,15 @@ class TestTaskProfileBuilder(unittest.TestCase):
         self.assertEqual(normalize_modalities([]), frozenset({"text"}))
 
     def test_modality_normalization_valid(self):
-        mods = normalize_modalities(["text", "vision"])
-        self.assertEqual(mods, frozenset({"text", "vision"}))
-
         mods_video = normalize_modalities(["video"])
         self.assertEqual(mods_video, frozenset({"text", "video"}))
 
     def test_modality_normalization_invalid(self):
         with self.assertRaises(ValueError):
             normalize_modalities(["audio"])
+
+        with self.assertRaises(ValueError):
+            normalize_modalities(["vision"])
 
         with self.assertRaises(ValueError):
             normalize_modalities(["text", "smell"])
@@ -94,12 +95,6 @@ class TestTaskProfileBuilder(unittest.TestCase):
         req = AssistRequest(message="Check this:\n```\nprint('hello')\n```")
         profile = build_task_profile(req)
         self.assertEqual(profile.task_type, TaskType.CODING)
-
-    def test_task_type_inferred_vision(self):
-        req = AssistRequest(message="Describe this picture", modalities=["vision"])
-        profile = build_task_profile(req)
-        self.assertEqual(profile.task_type, TaskType.VISION_ANALYSIS)
-        self.assertIn("vision", profile.required_capabilities)
 
     def test_task_type_inferred_video(self):
         req = AssistRequest(message="What happens in this clip?", modalities=["video"])
@@ -148,12 +143,32 @@ class TestIntelligenceRouter(unittest.TestCase):
         self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
         self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
 
-    def test_vision_routing_glm(self):
-        req = AssistRequest(message="Inspect image", modalities=["vision"])
+    def test_model_registry_no_muse_glimmer(self):
+        """Verify Muse Glimmer is completely absent from model registry."""
+        self.assertFalse(model_exists("muse_glimmer_30b"))
+        self.assertFalse(model_exists("meta/muse-glimmer-30b"))
+        with self.assertRaises(UnknownModelError):
+            get_model("muse_glimmer_30b")
+
+    def test_explicit_override_to_glm_preserved(self):
+        """Verify explicit override to GLM model is honored for text tasks."""
+        req = AssistRequest(message="Inspect text", model="glm_5_3_flash")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
         self.assertEqual(decision.selected_model_key, "glm_5_3_flash")
         self.assertEqual(decision.provider_model_id, "z-ai/glm-5.3-flash")
+        self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+
+    def test_ineligible_override_gpt_oss_lacks_video(self):
+        """Verify GPT-OSS override fails if video modality is required."""
+        req = AssistRequest(
+            message="Inspect clip",
+            modalities=["video"],
+            model="gpt_oss_20b",
+        )
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError):
+            self.router.route(profile)
 
     def test_video_routing_gemma(self):
         req = AssistRequest(message="Inspect clip", modalities=["video"])
@@ -182,10 +197,10 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.router.route(profile)
 
     def test_ineligible_override_lacks_modality(self):
-        # GPT-OSS lacks 'vision'
+        # GPT-OSS lacks 'video'
         req = AssistRequest(
-            message="Describe photo",
-            modalities=["vision"],
+            message="Describe clip",
+            modalities=["video"],
             model="gpt_oss_20b",
         )
         profile = build_task_profile(req)
@@ -269,13 +284,29 @@ class TestAPIEndpointRouting(unittest.TestCase):
         data = resp.json()
         self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
 
-    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_vision_routes_to_glm(self, mock_generate):
-        mock_generate.return_value = "The image depicts a sunset over mountains."
-
+    def test_api_vision_modality_returns_400(self):
         resp = self.client.post(
             "/assist",
             json={"message": "Analyze image", "modalities": ["vision"]},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unsupported modality: 'vision'", resp.json()["detail"])
+
+    def test_api_muse_glimmer_override_returns_400(self):
+        resp = self.client.post(
+            "/assist",
+            json={"message": "Analyze chart", "model": "muse_glimmer_30b"},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unknown model identifier 'muse_glimmer_30b'", resp.json()["detail"])
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_explicit_override_glm_preserved(self, mock_generate):
+        mock_generate.return_value = "GLM response."
+
+        resp = self.client.post(
+            "/assist",
+            json={"message": "Analyze prompt", "model": "glm_5_3_flash"},
         )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -515,7 +546,7 @@ class TestDesktopDecoupling(unittest.TestCase):
             client.assist(
                 message="hello",
                 task_type="agent_decision",
-                modalities=["text", "vision"],
+                modalities=["text", "video"],
                 model="glm_5_3_flash",
             )
 
@@ -523,8 +554,53 @@ class TestDesktopDecoupling(unittest.TestCase):
             import json
             payload = json.loads(req.data.decode("utf-8"))
             self.assertEqual(payload.get("task_type"), "agent_decision")
-            self.assertEqual(payload.get("modalities"), ["text", "vision"])
+            self.assertEqual(payload.get("modalities"), ["text", "video"])
             self.assertEqual(payload.get("model"), "glm_5_3_flash")
+
+
+class TestAssistServiceProfileHandling(unittest.TestCase):
+    """Direct unit tests for AssistService profile deduplication and injection."""
+
+    def setUp(self):
+        self.service = AssistService()
+        self.mock_llm = MagicMock()
+        self.mock_llm.generate_response.return_value = ("Test reply", "nvidia:gpt_oss_20b")
+        self.service.llm = self.mock_llm
+
+    def test_profile_appended_when_not_pre_embedded(self):
+        self.service.assist(
+            message="hello",
+            profile="Name: Alice\nRole: Engineer",
+            system_instruction="Base system instruction.",
+        )
+        self.mock_llm.generate_response.assert_called_once()
+        passed_instruction = self.mock_llm.generate_response.call_args[1]["system_instruction"]
+        self.assertIn("Base system instruction.", passed_instruction)
+        self.assertIn("User Profile & Background:\nName: Alice\nRole: Engineer", passed_instruction)
+        self.assertEqual(passed_instruction.count("Name: Alice"), 1)
+
+    def test_profile_not_duplicated_when_already_in_instruction(self):
+        pre_embedded = "Base instruction.\n\nUser Profile & Background:\nName: Alice\nRole: Engineer"
+        self.service.assist(
+            message="hello",
+            profile="Name: Alice\nRole: Engineer",
+            system_instruction=pre_embedded,
+        )
+        passed_instruction = self.mock_llm.generate_response.call_args[1]["system_instruction"]
+        self.assertEqual(passed_instruction.count("Name: Alice"), 1)
+        self.assertEqual(passed_instruction.count("User Profile & Background:"), 1)
+
+    def test_no_profile_block_when_empty_or_none(self):
+        self.service.assist(message="hello", profile="")
+        passed_instruction = self.mock_llm.generate_response.call_args[1]["system_instruction"]
+        self.assertNotIn("User Profile & Background:", passed_instruction)
+        self.assertEqual(passed_instruction, DEFAULT_SYSTEM_INSTRUCTION)
+
+        self.mock_llm.reset_mock()
+        self.service.assist(message="hello", profile=None)
+        passed_instruction_none = self.mock_llm.generate_response.call_args[1]["system_instruction"]
+        self.assertNotIn("User Profile & Background:", passed_instruction_none)
+        self.assertEqual(passed_instruction_none, DEFAULT_SYSTEM_INSTRUCTION)
 
 
 if __name__ == "__main__":

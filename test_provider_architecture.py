@@ -131,21 +131,21 @@ def test_4_nvidia_model_ids_correct():
 def test_5_all_four_models_in_registry():
     print("5. Testing all four models exist in registry...")
     models = list_models()
-    assert len(models) == 4
     keys = {m.key for m in models}
-    assert keys == {
-        "gpt_oss_20b",
-        "nemotron_3_5_lightning_30b_a3b",
-        "glm_5_3_flash",
-        "gemma_4_31b_it",
-    }
-    # Check capabilities match Phase 6A specifications
+    assert "gpt_oss_20b" in keys
+    assert "nemotron_3_5_lightning_30b_a3b" in keys
+    assert "gemma_4_31b_it" in keys
+    assert "glm_5_3_flash" in keys
+    assert "muse_glimmer_30b" not in keys
+
+    # Check capabilities match text-only specifications (no vision)
     nemotron = get_model("nemotron_3_5_lightning_30b_a3b")
     assert set(nemotron.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
     gemma = get_model("gemma_4_31b_it")
-    assert set(gemma.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic", "vision", "video"}
+    assert set(gemma.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic", "video"}
     glm = get_model("glm_5_3_flash")
-    assert set(glm.capabilities) == {"text", "reasoning", "tool_use", "agentic", "vision"}
+    assert set(glm.capabilities) == {"text", "reasoning", "tool_use", "agentic"}
+    assert not model_exists("muse_glimmer_30b")
     gpt = get_model("gpt_oss_20b")
     assert set(gpt.capabilities) == {"text", "reasoning", "coding"}
     print("  Registry model metadata verified [OK]")
@@ -357,9 +357,9 @@ def test_18_nvidia_provider_response_hardening_and_timeout():
     print("18. Testing NVIDIAProvider response hardening & configurable timeout...")
     prov = NVIDIAProvider(api_key="test-api-key")
 
-    # 5. Timeout configuration: uses settings.NVIDIA_INFERENCE_TIMEOUT (default 180.0) when no explicit timeout supplied
+    # 5. Timeout configuration: uses settings.NVIDIA_INFERENCE_TIMEOUT (default 85.0) when no explicit timeout supplied
     assert prov.timeout == settings.NVIDIA_INFERENCE_TIMEOUT
-    assert prov.timeout == 180.0
+    assert prov.timeout == 85.0
 
     # Explicit timeout override wins if provided
     prov_custom = NVIDIAProvider(api_key="test-api-key", timeout=45.0)

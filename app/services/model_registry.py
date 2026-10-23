@@ -57,38 +57,45 @@ _MODELS: Dict[str, ModelInfo] = {
         provider_model_id="z-ai/glm-5.3-flash",
         provider="nvidia",
         display_name="GLM-5-3-Flash",
-        capabilities=["text", "reasoning", "tool_use", "agentic", "vision"],
-        description="Low-latency multimodal model with vision, tool use, and agentic capabilities.",
+        capabilities=["text", "reasoning", "tool_use", "agentic"],
+        description="Fast reasoning model optimized for structured text and tool execution.",
     ),
     "gemma_4_31b_it": ModelInfo(
         key="gemma_4_31b_it",
         provider_model_id="google/gemma-4-31b-it",
         provider="nvidia",
         display_name="Gemma 4 31B IT",
-        capabilities=["text", "reasoning", "coding", "tool_use", "agentic", "vision", "video"],
-        description="High-capacity multimodal instruction-tuned model supporting text, vision, and video.",
+        capabilities=["text", "reasoning", "coding", "tool_use", "agentic", "video"],
+        description="High-capacity instruction-tuned model supporting text, coding, and agentic workflows.",
     ),
 }
 
+# Legacy models preserved for explicit overrides and test backwards compatibility
+_LEGACY_MODELS: Dict[str, ModelInfo] = {}
+
+_ALL_MODELS: Dict[str, ModelInfo] = {**_MODELS, **_LEGACY_MODELS}
+
 # Reverse lookup mapping from provider_model_id to ModelInfo
 _PROVIDER_ID_MAP: Dict[str, ModelInfo] = {
-    model.provider_model_id: model for model in _MODELS.values()
+    model.provider_model_id: model for model in _ALL_MODELS.values()
 }
 
 
 def get_model(model_key_or_id: str) -> ModelInfo:
     """
-    Look up a model by internal key (e.g. 'gemma_4_31b_it') or by
-    provider model ID (e.g. 'google/gemma-4-31b-it').
+    Look up a model by internal key (e.g. 'gpt_oss_20b', 'gemma_4_31b_it') or by
+    provider model ID (e.g. 'openai/gpt-oss-20b', 'google/gemma-4-31b-it').
     Raises UnknownModelError if the model is unrecognized.
     """
     cleaned = model_key_or_id.strip()
     if cleaned in _MODELS:
         return _MODELS[cleaned]
+    if cleaned in _LEGACY_MODELS:
+        return _LEGACY_MODELS[cleaned]
     if cleaned in _PROVIDER_ID_MAP:
         return _PROVIDER_ID_MAP[cleaned]
 
-    known_keys = list(_MODELS.keys())
+    known_keys = list(_ALL_MODELS.keys())
     known_ids = list(_PROVIDER_ID_MAP.keys())
     raise UnknownModelError(
         f"Unknown model identifier '{model_key_or_id}'. "
@@ -107,14 +114,14 @@ def get_model_by_provider_id(model_id: str) -> ModelInfo:
 
 
 def list_models() -> List[ModelInfo]:
-    """Return all registered models."""
+    """Return all active foundation models."""
     return list(_MODELS.values())
 
 
 def list_available_models() -> List[ModelInfo]:
     """
-    Return all models currently considered available in the registry.
-    In Phase 6A, all four models in the foundation are defined as available.
+    Return all models currently considered available in the registry for automatic routing.
+    In Phase 6A/6B, all active foundation models are defined as available.
     """
     return list(_MODELS.values())
 
@@ -122,7 +129,7 @@ def list_available_models() -> List[ModelInfo]:
 def model_exists(model_key_or_id: str) -> bool:
     """Check if a model exists by internal key or provider model ID."""
     cleaned = model_key_or_id.strip()
-    return cleaned in _MODELS or cleaned in _PROVIDER_ID_MAP
+    return cleaned in _ALL_MODELS or cleaned in _PROVIDER_ID_MAP
 
 
 def resolve_provider_model_id(model_key_or_id: Optional[str], default_id: str) -> str:

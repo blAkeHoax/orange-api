@@ -18,7 +18,6 @@ class TaskType(str, Enum):
     CODING = "coding"
     AGENT_DECISION = "agent_decision"
     JOB_STEP = "job_step"
-    VISION_ANALYSIS = "vision_analysis"
     VIDEO_ANALYSIS = "video_analysis"
 
 

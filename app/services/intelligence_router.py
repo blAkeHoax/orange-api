@@ -59,12 +59,11 @@ _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
     TaskType.CODING: "gemma_4_31b_it",
     TaskType.AGENT_DECISION: "nemotron_3_5_lightning_30b_a3b",
     TaskType.JOB_STEP: "nemotron_3_5_lightning_30b_a3b",
-    TaskType.VISION_ANALYSIS: "glm_5_3_flash",
     TaskType.VIDEO_ANALYSIS: "gemma_4_31b_it",
     TaskType.CONVERSATIONAL: "gpt_oss_20b",
 }
 
-# Static deterministic tie-break ordering across the four-model foundation
+# Static deterministic tie-break ordering across the four-model foundation and legacy models
 _STATIC_PRIORITY_ORDER: List[str] = [
     "nemotron_3_5_lightning_30b_a3b",
     "gemma_4_31b_it",
@@ -226,7 +225,11 @@ class IntelligenceRouter:
         # Step 6: Structured-Output Preference
         # ==========================================================
         if profile.requires_structured_output:
-            structured_order = ["nemotron_3_5_lightning_30b_a3b", "gemma_4_31b_it", "glm_5_3_flash"]
+            structured_order = [
+                "nemotron_3_5_lightning_30b_a3b",
+                "gemma_4_31b_it",
+                "glm_5_3_flash",
+            ]
             for key in structured_order:
                 matching = [m for m in sorted_candidates if m.key == key]
                 if matching:

@@ -43,11 +43,13 @@ class AssistService:
         )
 
         if profile and profile.strip():
-            profile_block = f"User Profile & Background:\n{profile.strip()}"
-            if full_instruction:
-                full_instruction = f"{full_instruction}\n\n{profile_block}"
-            else:
-                full_instruction = profile_block
+            profile_clean = profile.strip()
+            if profile_clean not in full_instruction:
+                profile_block = f"User Profile & Background:\n{profile_clean}"
+                if full_instruction:
+                    full_instruction = f"{full_instruction}\n\n{profile_block}"
+                else:
+                    full_instruction = profile_block
 
         reply, model_name = self.llm.generate_response(
             message=message,

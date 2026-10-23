@@ -10,7 +10,7 @@ from typing import Set, List, Optional
 from app.models.task_profile import TaskType, TaskProfile, LatencyPreference
 from app.models.schemas import AssistRequest
 
-_SUPPORTED_MODALITIES: Set[str] = {"text", "vision", "video"}
+_SUPPORTED_MODALITIES: Set[str] = {"text", "video"}
 
 _CODING_PATTERNS = [
     r"```",                                      # Markdown code fences
@@ -90,8 +90,6 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         # Infer deterministically from modalities and prompt content
         if "video" in modalities:
             resolved_task_type = TaskType.VIDEO_ANALYSIS
-        elif "vision" in modalities:
-            resolved_task_type = TaskType.VISION_ANALYSIS
         elif _COMPILED_CODING_REGEX.search(request.message):
             resolved_task_type = TaskType.CODING
         else:
@@ -116,11 +114,6 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         required_caps = {"text", "reasoning", "coding"}
         preferred_caps = {"tool_use"}
 
-    elif resolved_task_type == TaskType.VISION_ANALYSIS:
-        required_caps = {"text", "vision"}
-        if "vision" not in modalities:
-            modalities = frozenset(set(modalities) | {"vision"})
-
     elif resolved_task_type == TaskType.VIDEO_ANALYSIS:
         required_caps = {"text", "video"}
         if "video" not in modalities:
@@ -131,7 +124,7 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
 
     # Include non-text modalities in required capabilities
     for mod in modalities:
-        if mod in ("vision", "video"):
+        if mod in ("video",):
             required_caps.add(mod)
 
     # 4. Resolve explicit model override from AssistRequest.model

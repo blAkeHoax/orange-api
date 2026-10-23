@@ -13,12 +13,12 @@ Orange API communicates with NVIDIA's OpenAI-compatible API (`https://integrate.
 The foundation consists of four specialized models mapped by internal keys:
 - **`gpt_oss_20b`** (`openai/gpt-oss-20b`): High-speed conversational reasoning and general text tasks.
 - **`nemotron_3_5_lightning_30b_a3b`** (`nvidia/nemotron-3.5-lightning-30b-a3b`): Autonomous agent decision-making, structured JSON planning, and multi-step tool execution.
-- **`glm_5_3_flash`** (`z-ai/glm-5.3-flash`): Vision analysis, document inspection, and multimodal tasks.
+- **`glm_5_3_flash`** (`z-ai/glm-5.3-flash`): Structured reasoning, tool use, and agentic workflows.
 - **`gemma_4_31b_it`** (`google/gemma-4-31b-it`): Deep coding, code analysis, debugging, and video analysis.
 
 ### 3. Intelligence Router
 The built-in Intelligence Router deterministically selects the optimal model in $< 0.05$ms without requiring LLM pre-classifier calls:
-- **Task Profiling**: Identifies task archetypes (`conversational`, `coding`, `agent_decision`, `job_step`, `vision_analysis`, `video_analysis`) based on request metadata, prompt heuristics, and modality declarations.
+- **Task Profiling**: Identifies task archetypes (`conversational`, `coding`, `agent_decision`, `job_step`, `video_analysis`) based on request metadata, prompt heuristics, and modality declarations.
 - **7-Step Deterministic Selection Hierarchy**:
   1. Explicit Model Override Validation
   2. Required Capability Eligibility Filtering
@@ -96,7 +96,7 @@ Interactive API documentation will be accessible at:
 
 ### Main Inference Endpoint
 - **`POST /assist`**
-  Handles conversational, agentic, and multimodal assistance queries.
+  Handles conversational and agentic assistance queries.
 
 #### Request Body Schema
 ```json
@@ -120,12 +120,10 @@ Interactive API documentation will be accessible at:
 - `coding`
 - `agent_decision`
 - `job_step`
-- `vision_analysis`
 - `video_analysis`
 
 #### Supported `modalities`:
 - `text` (default)
-- `vision`
 - `video`
 
 #### Response Body Schema

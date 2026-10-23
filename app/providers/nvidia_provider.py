@@ -19,6 +19,7 @@ Implements the BaseProvider contract and maps errors to typed exceptions:
 
 from typing import List, Dict, Any, Optional
 import logging
+import re
 import httpx
 
 from app.providers.base import (
@@ -29,6 +30,7 @@ from app.providers.base import (
     ProviderTimeoutError,
 )
 from app.config import settings
+from app.services.model_registry import model_exists, get_model
 
 logger = logging.getLogger("orange_api.nvidia")
 
@@ -48,7 +50,7 @@ class NVIDIAProvider(BaseProvider):
         model: Optional[str] = None,
         timeout: Optional[float] = None,
     ):
-        self.api_key = api_key or settings.NVIDIA_API_KEY
+        self.api_key = api_key if api_key is not None else settings.NVIDIA_API_KEY
         self.base_url = (base_url or settings.NVIDIA_BASE_URL).rstrip("/")
         self.model = model or settings.DEFAULT_NVIDIA_MODEL
         self.timeout = timeout if timeout is not None else settings.NVIDIA_INFERENCE_TIMEOUT
@@ -60,6 +62,18 @@ class NVIDIAProvider(BaseProvider):
         """
         return bool(self.api_key and self.api_key.strip())
 
+    def _sanitize_message(self, message: str) -> str:
+        """Strip raw API key, bearer tokens, or sensitive patterns from error strings."""
+        if not message:
+            return ""
+        msg = str(message)
+        if self.api_key and self.api_key in msg:
+            msg = msg.replace(self.api_key, "***")
+        msg = re.sub(r"Bearer\s+[A-Za-z0-9_\-\.]+", "Bearer ***", msg)
+        msg = re.sub(r"nv" + r"api-[A-Za-z0-9_\-]+", "***", msg)
+        msg = re.sub(r"data:image/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+", "data:image/...;base64,[REDACTED]", msg)
+        return msg
+
     def generate(
         self,
         prompt: str,
@@ -69,6 +83,7 @@ class NVIDIAProvider(BaseProvider):
     ) -> str:
         """
         Send request to NVIDIA OpenAI-compatible API and return response text.
+        Supports text-only conversational assistance.
         Raises typed ProviderError subclasses on failures.
         Never exposes the API key in logs or error messages.
         """
@@ -78,7 +93,7 @@ class NVIDIAProvider(BaseProvider):
         # Resolve model: kwargs override -> instance model -> default model
         target_model = kwargs.get("model") or self.model
 
-        messages: List[Dict[str, str]] = []
+        messages: List[Dict[str, Any]] = []
         if system_instruction:
             messages.append({"role": "system", "content": system_instruction})
 
@@ -110,9 +125,10 @@ class NVIDIAProvider(BaseProvider):
         }
 
         endpoint = f"{self.base_url}/chat/completions"
+        request_timeout = kwargs.get("timeout", self.timeout)
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=request_timeout) as client:
                 response = client.post(endpoint, json=payload, headers=headers)
 
             status_code = response.status_code
@@ -133,7 +149,7 @@ class NVIDIAProvider(BaseProvider):
                     raise ProviderError("NVIDIA API response did not contain assistant message content.")
                 return message_content
 
-            # Parse error details safely without leaking credentials
+            # Parse error details safely without leaking credentials or raw payload
             err_msg = ""
             try:
                 err_data = response.json()
@@ -144,6 +160,7 @@ class NVIDIAProvider(BaseProvider):
             except Exception:
                 err_msg = response.text[:200]
 
+            err_msg = self._sanitize_message(err_msg)
             logger.warning("NVIDIA API returned HTTP %s: %s", status_code, err_msg)
 
             if status_code == 429:
@@ -158,16 +175,19 @@ class NVIDIAProvider(BaseProvider):
             raise ProviderError(f"NVIDIA API error (HTTP {status_code}): {err_msg}")
 
         except (httpx.ConnectError, httpx.NetworkError) as e:
-            logger.warning("NVIDIA connection error: %s", e)
-            raise ProviderUnavailableError(f"Failed to connect to NVIDIA API: {e}") from e
+            clean_e = self._sanitize_message(str(e))
+            logger.warning("NVIDIA connection error: %s", clean_e)
+            raise ProviderUnavailableError(f"Failed to connect to NVIDIA API: {clean_e}") from e
 
         except httpx.TimeoutException as e:
-            logger.warning("NVIDIA request timed out: %s", e)
-            raise ProviderTimeoutError(f"NVIDIA request timed out: {e}") from e
+            clean_e = self._sanitize_message(str(e))
+            logger.warning("NVIDIA request timed out: %s", clean_e)
+            raise ProviderTimeoutError(f"NVIDIA request timed out: {clean_e}") from e
 
         except (ProviderError, ProviderRateLimitError, ProviderUnavailableError, ProviderTimeoutError):
             raise
 
         except Exception as e:
-            logger.error("Unexpected error during NVIDIA invocation: %s", e)
-            raise ProviderError(f"NVIDIA provider error: {e}") from e
+            clean_e = self._sanitize_message(str(e))
+            logger.error("Unexpected error during NVIDIA invocation: %s", clean_e)
+            raise ProviderError(f"NVIDIA provider error: {clean_e}") from e
