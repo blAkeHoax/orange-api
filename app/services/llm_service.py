@@ -1,9 +1,11 @@
+import time
 from typing import List, Dict, Any, Optional, Tuple
 from app.providers import BaseProvider, get_provider
 from app.services.intelligence_router import IntelligenceRouter, RouteDecision
 from app.services.task_profile_builder import build_task_profile
 from app.models.task_profile import TaskProfile
 from app.models.schemas import AssistRequest
+from app.utils.latency import log_latency
 
 
 class LLMService:
@@ -52,7 +54,15 @@ class LLMService:
             profile = build_task_profile(req)
 
         # 2. Evaluate Intelligence Router
+        routing_start = time.perf_counter()
         decision = self.router.route(profile)
+        routing_ms = (time.perf_counter() - routing_start) * 1000.0
+        log_latency(
+            stage="routing",
+            duration_ms=routing_ms,
+            selected_model=decision.provider_model_id,
+            task_type=profile.task_type.value,
+        )
 
         # 3. Dispatch to active provider with selected provider model ID
         reply = active_provider.generate(

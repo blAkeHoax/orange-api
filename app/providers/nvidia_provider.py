@@ -20,6 +20,7 @@ Implements the BaseProvider contract and maps errors to typed exceptions:
 from typing import List, Dict, Any, Optional
 import logging
 import re
+import time
 import httpx
 
 from app.providers.base import (
@@ -31,6 +32,7 @@ from app.providers.base import (
 )
 from app.config import settings
 from app.services.model_registry import model_exists, get_model
+from app.utils.latency import log_latency
 
 logger = logging.getLogger("orange_api.nvidia")
 
@@ -127,11 +129,29 @@ class NVIDIAProvider(BaseProvider):
         endpoint = f"{self.base_url}/chat/completions"
         request_timeout = kwargs.get("timeout", self.timeout)
 
+        http_start = time.perf_counter()
         try:
             with httpx.Client(timeout=request_timeout) as client:
                 response = client.post(endpoint, json=payload, headers=headers)
 
+            http_duration_ms = (time.perf_counter() - http_start) * 1000.0
             status_code = response.status_code
+
+            log_latency(
+                stage="nvidia_provider",
+                duration_ms=http_duration_ms,
+                model=target_model,
+                http_status=status_code,
+                prompt_len=len(prompt),
+                history_turns=len(history or []),
+            )
+            # Track TTFT diagnostic limitation: blocking synchronous HTTP client
+            log_latency(
+                stage="ttft",
+                status="unavailable",
+                reason="non_streaming_provider",
+                note="NVIDIAProvider uses blocking chat/completions without streaming chunks",
+            )
 
             if status_code == 200:
                 data = response.json()
@@ -180,6 +200,12 @@ class NVIDIAProvider(BaseProvider):
             raise ProviderUnavailableError(f"Failed to connect to NVIDIA API: {clean_e}") from e
 
         except httpx.TimeoutException as e:
+            http_duration_ms = (time.perf_counter() - http_start) * 1000.0
+            log_latency(
+                stage="nvidia_provider_timeout",
+                duration_ms=http_duration_ms,
+                model=target_model,
+            )
             clean_e = self._sanitize_message(str(e))
             logger.warning("NVIDIA request timed out: %s", clean_e)
             raise ProviderTimeoutError(f"NVIDIA request timed out: {clean_e}") from e

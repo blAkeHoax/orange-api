@@ -1,8 +1,9 @@
 import asyncio
 import functools
 import logging
+import time
 import anyio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.config import settings
 from app.models.schemas import (
@@ -23,6 +24,7 @@ from app.providers import (
     ProviderTimeoutError,
 )
 from app.utils.sanitizer import _sanitize_error
+from app.utils.latency import log_latency, set_current_request_id, get_current_request_id
 
 logger = logging.getLogger("orange_api.assist")
 router = APIRouter()
@@ -33,11 +35,27 @@ assistant = AssistService()
     "/assist",
     response_model=AssistResponse,
 )
-async def assist(request: AssistRequest):
+async def assist(request: AssistRequest, raw_req: Request = None):
     """
     Handle assistance requests via the configured AIProvider.
     Enforces a genuine 90.0-second route deadline for overall request completion.
+    Instruments request start, routing, provider call, serialization, and total latency.
     """
+    incoming_id = None
+    if raw_req is not None:
+        incoming_id = raw_req.headers.get("x-request-id") or raw_req.headers.get("x-correlation-id")
+    req_id = set_current_request_id(incoming_id)
+    req_start = time.perf_counter()
+
+    log_latency(
+        stage="request_start",
+        request_id=req_id,
+        endpoint="/assist",
+        task_type=request.task_type or "auto",
+        message_len=len(request.message),
+        history_turns=len(request.history or []),
+    )
+
     route_deadline = settings.ROUTE_TIMEOUT
     try:
         worker_call = functools.partial(
@@ -55,9 +73,39 @@ async def assist(request: AssistRequest):
             anyio.to_thread.run_sync(worker_call),
             timeout=route_deadline,
         )
-        return AssistResponse(**result)
+
+        serial_start = time.perf_counter()
+        response_obj = AssistResponse(**result)
+        serial_ms = (time.perf_counter() - serial_start) * 1000.0
+
+        log_latency(
+            stage="response_serialization",
+            duration_ms=serial_ms,
+            request_id=req_id,
+            reply_len=len(response_obj.reply),
+            model=response_obj.model,
+        )
+
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_complete",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            total_elapsed_ms=total_elapsed_ms,
+            status_code=200,
+        )
+
+        return response_obj
 
     except asyncio.TimeoutError:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=504,
+            error_type="RouteTimeoutError",
+        )
         logger.warning("Assist route deadline exceeded (%.1fs)", route_deadline)
         raise HTTPException(
             status_code=504,
@@ -65,34 +113,90 @@ async def assist(request: AssistRequest):
         )
 
     except (RoutingError, NoEligibleModelError, IneligibleOverrideError, UnknownModelError, ValueError) as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=400,
+            error_type=type(e).__name__,
+        )
         clean_e = _sanitize_error(str(e))
         logger.warning("Routing / Bad request error: %s", clean_e)
         raise HTTPException(status_code=400, detail=clean_e)
 
     except ProviderRateLimitError as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=429,
+            error_type="ProviderRateLimitError",
+        )
         clean_e = _sanitize_error(str(e))
         logger.warning("Provider rate limit error: %s", clean_e)
         raise HTTPException(status_code=429, detail=f"AI Provider rate limit: {clean_e}")
 
     except ProviderUnavailableError as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=503,
+            error_type="ProviderUnavailableError",
+        )
         clean_e = _sanitize_error(str(e))
         logger.warning("Provider unavailable error: %s", clean_e)
         raise HTTPException(status_code=503, detail=f"AI Provider unavailable: {clean_e}")
 
     except ProviderTimeoutError as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=504,
+            error_type="ProviderTimeoutError",
+        )
         clean_e = _sanitize_error(str(e))
         logger.warning("Provider timeout error: %s", clean_e)
         raise HTTPException(status_code=504, detail=f"AI Provider timeout: {clean_e}")
 
     except ProviderError as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=502,
+            error_type="ProviderError",
+        )
         clean_e = _sanitize_error(str(e))
         logger.error("Provider error: %s", clean_e)
         raise HTTPException(status_code=502, detail=f"AI Provider error: {clean_e}")
 
-    except HTTPException:
+    except HTTPException as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=e.status_code,
+            error_type="HTTPException",
+        )
         raise
 
     except Exception as e:
+        total_elapsed_ms = (time.perf_counter() - req_start) * 1000.0
+        log_latency(
+            stage="request_failed",
+            duration_ms=total_elapsed_ms,
+            request_id=req_id,
+            status_code=500,
+            error_type=type(e).__name__,
+        )
         clean_e = _sanitize_error(str(e))
         logger.error("Assist request unexpected failure: %s", clean_e)
         raise HTTPException(status_code=500, detail=f"Internal assist service error: {clean_e}")

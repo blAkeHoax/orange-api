@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.api.assist import router as assist_router
 from app.utils.sanitizer import _sanitize_error
+from app.utils.latency import current_request_id, set_current_request_id
 
 logger = logging.getLogger("orange_api.main")
 
@@ -77,6 +78,20 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Ensure every HTTP request has a correlation ID attached to headers."""
+    incoming_id = request.headers.get("x-request-id") or request.headers.get("x-correlation-id")
+    req_id = set_current_request_id(incoming_id)
+    token = current_request_id.set(req_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
+    finally:
+        current_request_id.reset(token)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
@@ -115,10 +130,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     ]
     logger.warning("Request validation failed for %s: %s", request.url.path, error_summary)
 
-    return JSONResponse(
+    response = JSONResponse(
         status_code=422,
         content={"detail": jsonable_encoder(cleaned_errors)},
     )
+    req_id = current_request_id.get()
+    if req_id:
+        response.headers["X-Request-ID"] = req_id
+    return response
 
 
 app.include_router(assist_router)
