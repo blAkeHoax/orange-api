@@ -60,7 +60,7 @@ _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
     TaskType.AGENT_DECISION: "nemotron_3_5_lightning_30b_a3b",
     TaskType.JOB_STEP: "nemotron_3_5_lightning_30b_a3b",
     TaskType.VIDEO_ANALYSIS: "gemma_4_31b_it",
-    TaskType.CONVERSATIONAL: "gpt_oss_20b",
+    TaskType.CONVERSATIONAL: "nemotron_3_5_lightning_30b_a3b",
 }
 
 # Static deterministic tie-break ordering across the four-model foundation and legacy models

@@ -114,12 +114,12 @@ class TestIntelligenceRouter(unittest.TestCase):
     def setUp(self):
         self.router = IntelligenceRouter()
 
-    def test_conversational_routing_gpt_oss(self):
+    def test_conversational_routing_nemotron(self):
         req = AssistRequest(message="What is the capital of France?")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "gpt_oss_20b")
-        self.assertEqual(decision.provider_model_id, "openai/gpt-oss-20b")
+        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
         self.assertIn("conversational", decision.reason.lower())
 
     def test_coding_routing_gemma(self):
@@ -255,13 +255,13 @@ class TestAPIEndpointRouting(unittest.TestCase):
         cls.client = TestClient(app)
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_conversational_defaults_to_gpt_oss(self, mock_generate):
+    def test_api_conversational_defaults_to_nemotron(self, mock_generate):
         mock_generate.return_value = "Hello! I am ready to assist."
 
         resp = self.client.post("/assist", json={"message": "Good morning"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertIn("openai/gpt-oss-20b", data["model"])
+        self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
     def test_api_coding_routes_to_gemma(self, mock_generate):

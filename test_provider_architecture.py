@@ -251,10 +251,10 @@ def test_14_llm_service_delegation():
     mock_prov = MockSuccessProvider()
     llm = LLMService(provider=mock_prov)
 
-    # 1. Default conversational routing (Phase 6B Intelligence Router selects gpt_oss_20b)
+    # 1. Default conversational routing (Phase 6B Intelligence Router selects nemotron_3_5_lightning_30b_a3b)
     reply, model_name = llm.generate_response(message="Hello")
     assert "Mock reply" in reply
-    assert model_name == "nvidia:openai/gpt-oss-20b"
+    assert model_name == "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b"
 
     # 2. Explicit model key resolution via ModelRegistry
     reply2, model_name2 = llm.generate_response(message="Code something", model="nemotron_3_5_lightning_30b_a3b")
