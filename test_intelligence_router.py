@@ -122,12 +122,15 @@ class TestIntelligenceRouter(unittest.TestCase):
         self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
         self.assertIn("conversational", decision.reason.lower())
 
-    def test_coding_routing_gemma(self):
+    def test_coding_routing_nemotron_when_gemma_unavailable(self):
+        """Verify normal coding task routes to Nemotron when Gemma is unavailable."""
         req = AssistRequest(message="debug this Python function:\ndef test(): pass")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "gemma_4_31b_it")
-        self.assertEqual(decision.provider_model_id, "google/gemma-4-31b-it")
+        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+        self.assertNotEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+        self.assertNotEqual(decision.selected_model_key, "gemma_4_31b_it")
 
     def test_agent_decision_routing_nemotron(self):
         req = AssistRequest(message="Analyze state and decide tool", task_type="agent_decision")
@@ -170,19 +173,19 @@ class TestIntelligenceRouter(unittest.TestCase):
         with self.assertRaises(IneligibleOverrideError):
             self.router.route(profile)
 
-    def test_video_routing_gemma(self):
+    def test_video_routing_fails_when_gemma_unavailable(self):
+        """Verify video analysis task raises NoEligibleModelError when Gemma is unavailable."""
         req = AssistRequest(message="Inspect clip", modalities=["video"])
         profile = build_task_profile(req)
-        decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "gemma_4_31b_it")
-        self.assertEqual(decision.provider_model_id, "google/gemma-4-31b-it")
+        with self.assertRaises(NoEligibleModelError):
+            self.router.route(profile)
 
     def test_valid_override_honored(self):
-        # Conversational request overridden to Gemma
-        req = AssistRequest(message="Hello there", model="gemma_4_31b_it")
+        # Conversational request overridden to GLM
+        req = AssistRequest(message="Hello there", model="glm_5_3_flash")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "gemma_4_31b_it")
+        self.assertEqual(decision.selected_model_key, "glm_5_3_flash")
         self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
 
     def test_ineligible_override_lacks_capability(self):
@@ -247,18 +250,34 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.router.route(profile)
         self.assertIn("is currently unavailable", str(cm.exception))
 
-    def test_list_available_models_excludes_gpt_oss(self):
-        """Verify list_available_models() returns selectable models and excludes gpt_oss_20b."""
+    def test_explicit_override_unavailable_gemma_rejected(self):
+        """Verify explicit override for gemma_4_31b_it raises IneligibleOverrideError fast."""
+        req = AssistRequest(message="Hello there", model="gemma_4_31b_it")
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("is currently unavailable", str(cm.exception))
+
+    def test_explicit_override_unavailable_gemma_provider_id_rejected(self):
+        """Verify explicit override for google/gemma-4-31b-it raises IneligibleOverrideError fast."""
+        req = AssistRequest(message="Hello there", model="google/gemma-4-31b-it")
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("is currently unavailable", str(cm.exception))
+
+    def test_list_available_models_excludes_unavailable_models(self):
+        """Verify list_available_models() returns selectable models and excludes gpt_oss_20b and gemma_4_31b_it."""
         available = list_available_models()
         available_keys = {m.key for m in available}
         self.assertNotIn("gpt_oss_20b", available_keys)
+        self.assertNotIn("gemma_4_31b_it", available_keys)
         self.assertIn("nemotron_3_5_lightning_30b_a3b", available_keys)
-        self.assertIn("gemma_4_31b_it", available_keys)
         self.assertIn("glm_5_3_flash", available_keys)
 
     def test_eligible_explicit_overrides_succeed(self):
-        """Verify eligible explicit overrides for Nemotron, Gemma, and GLM all succeed."""
-        for model_key in ["nemotron_3_5_lightning_30b_a3b", "gemma_4_31b_it", "glm_5_3_flash"]:
+        """Verify eligible explicit overrides for Nemotron and GLM all succeed."""
+        for model_key in ["nemotron_3_5_lightning_30b_a3b", "glm_5_3_flash"]:
             req = AssistRequest(message="Hello there", model=model_key)
             profile = build_task_profile(req)
             decision = self.router.route(profile)
@@ -296,7 +315,7 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(dec.fallback_candidates, first_decision.fallback_candidates)
 
     def test_fallback_candidates_excludes_selected(self):
-        req = AssistRequest(message="Debug code", task_type="coding")
+        req = AssistRequest(message="Tell me a joke", task_type="conversational")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
         self.assertNotIn(decision.selected_model_key, decision.fallback_candidates)
@@ -322,13 +341,15 @@ class TestAPIEndpointRouting(unittest.TestCase):
         self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_coding_routes_to_gemma(self, mock_generate):
+    def test_api_coding_routes_to_nemotron(self, mock_generate):
         mock_generate.return_value = "Fixed the syntax error."
 
         resp = self.client.post("/assist", json={"message": "debug this python code: def foo(): return 1"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertIn("google/gemma-4-31b-it", data["model"])
+        self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+        self.assertNotIn("google/gemma-4-31b-it", data["model"])
+        mock_generate.assert_called_once()
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
     def test_api_agent_decision_routes_to_nemotron(self, mock_generate):
@@ -424,6 +445,48 @@ class TestAPIEndpointRouting(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertIn("is currently unavailable", resp.json()["detail"])
+        mock_generate.assert_not_called()
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_unavailable_gemma_override_fails_fast_without_calling_provider(self, mock_generate):
+        """Explicit override for gemma_4_31b_it must return HTTP 400 fast without invoking provider."""
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Hello there",
+                "model": "gemma_4_31b_it",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("is currently unavailable", resp.json()["detail"])
+        mock_generate.assert_not_called()
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_unavailable_gemma_by_provider_id_fails_fast(self, mock_generate):
+        """Explicit override using provider ID 'google/gemma-4-31b-it' must also fail fast."""
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Hello there",
+                "model": "google/gemma-4-31b-it",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("is currently unavailable", resp.json()["detail"])
+        mock_generate.assert_not_called()
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_video_analysis_fails_fast_without_calling_provider(self, mock_generate):
+        """Video analysis request must fail fast with HTTP 400 without invoking provider when no video model is available."""
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Inspect video clip",
+                "modalities": ["video"],
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("No registered models satisfy required capabilities", resp.json()["detail"])
         mock_generate.assert_not_called()
 
     def test_api_unknown_model_returns_400(self):

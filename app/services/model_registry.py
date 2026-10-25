@@ -71,7 +71,7 @@ _MODELS: Dict[str, ModelInfo] = {
         display_name="Gemma 4 31B IT",
         capabilities=["text", "reasoning", "coding", "tool_use", "agentic", "video"],
         description="High-capacity instruction-tuned model supporting text, coding, and agentic workflows.",
-        is_available=True,
+        is_available=False,
     ),
 }
 
