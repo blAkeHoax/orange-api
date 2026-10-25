@@ -196,6 +196,18 @@ class TestIntelligenceRouter(unittest.TestCase):
         with self.assertRaises(IneligibleOverrideError):
             self.router.route(profile)
 
+    def test_ineligible_override_available_model_lacks_capability(self):
+        # GLM-5.3-Flash lacks 'coding' required for coding task
+        req = AssistRequest(
+            message="Write code",
+            task_type="coding",
+            model="glm_5_3_flash",
+        )
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("lacks required capabilities", str(cm.exception))
+
     def test_ineligible_override_lacks_modality(self):
         # GPT-OSS lacks 'video'
         req = AssistRequest(
@@ -206,6 +218,52 @@ class TestIntelligenceRouter(unittest.TestCase):
         profile = build_task_profile(req)
         with self.assertRaises(IneligibleOverrideError):
             self.router.route(profile)
+
+    def test_ineligible_override_available_model_lacks_modality(self):
+        # GLM-5.3-Flash lacks 'video' modality
+        req = AssistRequest(
+            message="Describe clip",
+            modalities=["video"],
+            model="glm_5_3_flash",
+        )
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("video", str(cm.exception))
+
+    def test_explicit_override_unavailable_gpt_oss_rejected(self):
+        """Verify explicit override for gpt_oss_20b raises IneligibleOverrideError fast."""
+        req = AssistRequest(message="Hello there", model="gpt_oss_20b")
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("is currently unavailable", str(cm.exception))
+
+    def test_explicit_override_unavailable_provider_id_rejected(self):
+        """Verify explicit override for openai/gpt-oss-20b raises IneligibleOverrideError fast."""
+        req = AssistRequest(message="Hello there", model="openai/gpt-oss-20b")
+        profile = build_task_profile(req)
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("is currently unavailable", str(cm.exception))
+
+    def test_list_available_models_excludes_gpt_oss(self):
+        """Verify list_available_models() returns selectable models and excludes gpt_oss_20b."""
+        available = list_available_models()
+        available_keys = {m.key for m in available}
+        self.assertNotIn("gpt_oss_20b", available_keys)
+        self.assertIn("nemotron_3_5_lightning_30b_a3b", available_keys)
+        self.assertIn("gemma_4_31b_it", available_keys)
+        self.assertIn("glm_5_3_flash", available_keys)
+
+    def test_eligible_explicit_overrides_succeed(self):
+        """Verify eligible explicit overrides for Nemotron, Gemma, and GLM all succeed."""
+        for model_key in ["nemotron_3_5_lightning_30b_a3b", "gemma_4_31b_it", "glm_5_3_flash"]:
+            req = AssistRequest(message="Hello there", model=model_key)
+            profile = build_task_profile(req)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, model_key)
+            self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
 
     def test_unknown_override_model(self):
         req = AssistRequest(
@@ -332,13 +390,41 @@ class TestAPIEndpointRouting(unittest.TestCase):
         resp = self.client.post(
             "/assist",
             json={
-                "message": "Run agent step",
-                "task_type": "agent_decision",
-                "model": "gpt_oss_20b",
+                "message": "def solve(): pass",
+                "task_type": "coding",
+                "model": "glm_5_3_flash",
             },
         )
         self.assertEqual(resp.status_code, 400)
         self.assertIn("lacks required capabilities", resp.json()["detail"])
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_unavailable_override_fails_fast_without_calling_provider(self, mock_generate):
+        """Explicit override for gpt_oss_20b must return HTTP 400 fast without invoking provider."""
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Hello there",
+                "model": "gpt_oss_20b",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("is currently unavailable", resp.json()["detail"])
+        mock_generate.assert_not_called()
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_unavailable_override_by_provider_id_fails_fast(self, mock_generate):
+        """Explicit override using provider ID 'openai/gpt-oss-20b' must also fail fast."""
+        resp = self.client.post(
+            "/assist",
+            json={
+                "message": "Hello there",
+                "model": "openai/gpt-oss-20b",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("is currently unavailable", resp.json()["detail"])
+        mock_generate.assert_not_called()
 
     def test_api_unknown_model_returns_400(self):
         resp = self.client.post(

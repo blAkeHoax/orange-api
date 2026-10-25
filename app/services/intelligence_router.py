@@ -102,6 +102,13 @@ class IntelligenceRouter:
                 raise UnknownModelError(f"Unknown model identifier '{override_key}'.")
 
             model_info = get_model(override_key)
+
+            # Validate model availability: reject unavailable models before provider inference
+            if not getattr(model_info, "is_available", True):
+                raise IneligibleOverrideError(
+                    f"Model override '{model_info.key}' is currently unavailable."
+                )
+
             model_caps = set(model_info.capabilities)
 
             # Validate required capabilities

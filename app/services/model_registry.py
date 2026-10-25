@@ -32,6 +32,7 @@ class ModelInfo:
     display_name: str
     capabilities: List[str]
     description: Optional[str] = None
+    is_available: bool = True
 
 
 # Locked Four-Model Foundation
@@ -43,6 +44,7 @@ _MODELS: Dict[str, ModelInfo] = {
         display_name="GPT-OSS-20B",
         capabilities=["text", "reasoning", "coding"],
         description="Open-weight language model optimized for text, reasoning, and code generation.",
+        is_available=False,
     ),
     "nemotron_3_5_lightning_30b_a3b": ModelInfo(
         key="nemotron_3_5_lightning_30b_a3b",
@@ -51,6 +53,7 @@ _MODELS: Dict[str, ModelInfo] = {
         display_name="Nemotron-3.5-Lightning-30B-A3B",
         capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
         description="Fast and capable agentic model optimized for structured reasoning and tool execution.",
+        is_available=True,
     ),
     "glm_5_3_flash": ModelInfo(
         key="glm_5_3_flash",
@@ -59,6 +62,7 @@ _MODELS: Dict[str, ModelInfo] = {
         display_name="GLM-5-3-Flash",
         capabilities=["text", "reasoning", "tool_use", "agentic"],
         description="Fast reasoning model optimized for structured text and tool execution.",
+        is_available=True,
     ),
     "gemma_4_31b_it": ModelInfo(
         key="gemma_4_31b_it",
@@ -67,6 +71,7 @@ _MODELS: Dict[str, ModelInfo] = {
         display_name="Gemma 4 31B IT",
         capabilities=["text", "reasoning", "coding", "tool_use", "agentic", "video"],
         description="High-capacity instruction-tuned model supporting text, coding, and agentic workflows.",
+        is_available=True,
     ),
 }
 
@@ -121,9 +126,9 @@ def list_models() -> List[ModelInfo]:
 def list_available_models() -> List[ModelInfo]:
     """
     Return all models currently considered available in the registry for automatic routing.
-    In Phase 6A/6B, all active foundation models are defined as available.
+    Excludes models flagged as unavailable due to upstream provider unresponsiveness.
     """
-    return list(_MODELS.values())
+    return [m for m in _MODELS.values() if m.is_available]
 
 
 def model_exists(model_key_or_id: str) -> bool:
