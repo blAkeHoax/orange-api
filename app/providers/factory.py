@@ -4,11 +4,13 @@ import logging
 from app.config import settings
 from app.providers.base import BaseProvider
 from app.providers.nvidia_provider import NVIDIAProvider
+from app.providers.huggingface_provider import HuggingFaceProvider
 
 logger = logging.getLogger("orange_api.providers")
 
 _PROVIDER_REGISTRY: Dict[str, Type[BaseProvider]] = {
     "nvidia": NVIDIAProvider,
+    "huggingface": HuggingFaceProvider,
 }
 
 

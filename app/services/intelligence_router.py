@@ -66,6 +66,8 @@ _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
 # Static deterministic tie-break ordering across the four-model foundation and legacy models
 _STATIC_PRIORITY_ORDER: List[str] = [
     "nemotron_3_5_lightning_30b_a3b",
+    "qwen_3_8_27b",
+    "gpt_oss_120b",
     "gemma_4_31b_it",
     "gpt_oss_20b",
     "glm_5_3_flash",
@@ -78,15 +80,35 @@ class IntelligenceRouter:
     Maps task requirements to available models in the ModelRegistry.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, active_provider: Optional[Any] = None):
+        self.active_provider = active_provider
 
-    def route(self, profile: TaskProfile) -> RouteDecision:
+    def _is_model_provider_available(self, model_info: ModelInfo, active_provider: Optional[Any] = None) -> bool:
+        """
+        Verify if the model's provider is currently configured and available.
+        If a custom active_provider was explicitly injected into LLMService/Router,
+        we treat provider availability as satisfied.
+        """
+        eff_provider = active_provider or self.active_provider
+        if eff_provider is not None:
+            return True
+        try:
+            from app.providers.factory import get_provider
+            p = get_provider(model_info.provider)
+            return p.is_available()
+        except Exception:
+            return False
+
+    def route(self, profile: TaskProfile, active_provider: Optional[Any] = None) -> RouteDecision:
         """
         Evaluate TaskProfile against available models using the 7-step hierarchy.
         Returns a RouteDecision detailing the chosen model, provider ID, and fallbacks.
         """
-        all_models = list_available_models()
+        eff_provider = active_provider or self.active_provider
+        all_models = [
+            m for m in list_available_models()
+            if self._is_model_provider_available(m, eff_provider)
+        ]
 
         # Helper to sort candidates deterministically by static priority order
         def sort_candidates(models: List[ModelInfo]) -> List[ModelInfo]:
@@ -107,6 +129,12 @@ class IntelligenceRouter:
             if not getattr(model_info, "is_available", True):
                 raise IneligibleOverrideError(
                     f"Model override '{model_info.key}' is currently unavailable."
+                )
+
+            # Validate provider availability: reject if upstream provider is unconfigured
+            if not self._is_model_provider_available(model_info, eff_provider):
+                raise IneligibleOverrideError(
+                    f"Model override '{model_info.key}' provider '{model_info.provider}' is currently unconfigured or unavailable."
                 )
 
             model_caps = set(model_info.capabilities)
@@ -169,8 +197,8 @@ class IntelligenceRouter:
                 f"No registered models satisfy required modalities: {sorted(list(profile.modalities))}."
             )
 
-        # If exactly one model satisfies all hard requirements, select it immediately
-        if len(candidates) == 1:
+        # If exactly one model satisfies hard requirements for non-text modalities, select it immediately
+        if len(candidates) == 1 and (profile.modalities - {"text"}):
             selected = candidates[0]
             decision = RouteDecision(
                 selected_model_key=selected.key,
@@ -234,6 +262,8 @@ class IntelligenceRouter:
         if profile.requires_structured_output:
             structured_order = [
                 "nemotron_3_5_lightning_30b_a3b",
+                "qwen_3_8_27b",
+                "gpt_oss_120b",
                 "gemma_4_31b_it",
                 "glm_5_3_flash",
             ]

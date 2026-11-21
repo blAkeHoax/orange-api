@@ -20,8 +20,11 @@ class LLMService:
         provider: Optional[BaseProvider] = None,
         router: Optional[IntelligenceRouter] = None,
     ):
+        self._custom_provider = provider is not None
         self.provider = provider or get_provider()
-        self.router = router or IntelligenceRouter()
+        self.router = router or IntelligenceRouter(
+            active_provider=self.provider if self._custom_provider else None
+        )
 
     def generate_response(
         self,
@@ -40,8 +43,6 @@ class LLMService:
         Routes task using the Intelligence Router.
         Returns (reply_text, model_identifier).
         """
-        active_provider = get_provider(preferred_provider) if preferred_provider else self.provider
-
         # 1. Build or use TaskProfile
         profile = task_profile
         if profile is None:
@@ -55,7 +56,10 @@ class LLMService:
 
         # 2. Evaluate Intelligence Router
         routing_start = time.perf_counter()
-        decision = self.router.route(profile)
+        decision = self.router.route(
+            profile,
+            active_provider=self.provider if self._custom_provider else None,
+        )
         routing_ms = (time.perf_counter() - routing_start) * 1000.0
         log_latency(
             stage="routing",
@@ -64,7 +68,17 @@ class LLMService:
             task_type=profile.task_type.value,
         )
 
-        # 3. Dispatch to active provider with selected provider model ID
+        # 3. Resolve active provider dynamically unless custom provider was injected or preferred_provider requested
+        if preferred_provider:
+            active_provider = get_provider(preferred_provider)
+        elif self._custom_provider:
+            active_provider = self.provider
+        else:
+            from app.services.model_registry import get_model
+            model_info = get_model(decision.selected_model_key)
+            active_provider = get_provider(model_info.provider)
+
+        # 4. Dispatch to active provider with selected provider model ID
         reply = active_provider.generate(
             prompt=message,
             system_instruction=system_instruction,

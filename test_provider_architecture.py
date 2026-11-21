@@ -113,39 +113,55 @@ def test_3_nvidia_base_url_configured():
 
 
 def test_4_nvidia_model_ids_correct():
-    print("4. Testing four-model foundation IDs...")
+    print("4. Testing foundation model IDs...")
     expected_ids = {
         "gpt_oss_20b": "openai/gpt-oss-20b",
         "nemotron_3_5_lightning_30b_a3b": "nvidia/nemotron-3.5-lightning-30b-a3b",
         "glm_5_3_flash": "z-ai/glm-5.3-flash",
         "gemma_4_31b_it": "google/gemma-4-31b-it",
+        "qwen_3_8_27b": "Qwen/Qwen3.8-27B:fastest",
+        "gpt_oss_120b": "openai/gpt-oss-120b:fastest",
     }
     for key, expected_id in expected_ids.items():
         model_info = get_model(key)
         assert model_info.provider_model_id == expected_id, (
             f"Expected {expected_id} for {key}, got {model_info.provider_model_id}"
         )
-    print("  Four-model foundation IDs verified [OK]")
+    print("  Foundation model IDs verified [OK]")
 
 
 def test_5_all_four_models_in_registry():
-    print("5. Testing all four models exist in registry...")
+    print("5. Testing models in registry and GLM retirement...")
     models = list_models()
     keys = {m.key for m in models}
     assert "gpt_oss_20b" in keys
     assert "nemotron_3_5_lightning_30b_a3b" in keys
     assert "gemma_4_31b_it" in keys
     assert "glm_5_3_flash" in keys
+    assert "qwen_3_8_27b" in keys
+    assert "gpt_oss_120b" in keys
     assert "muse_glimmer_30b" not in keys
+
+    # Check GLM is retired
+    glm = get_model("glm_5_3_flash")
+    assert glm.is_available is False, "Expected glm_5_3_flash to be retired (is_available=False)"
+
+    # Check Hugging Face models
+    qwen = get_model("qwen_3_8_27b")
+    assert qwen.provider == "huggingface"
+    assert qwen.is_available is True
+    assert set(qwen.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    gpt120 = get_model("gpt_oss_120b")
+    assert gpt120.provider == "huggingface"
+    assert gpt120.is_available is True
+    assert set(gpt120.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
     # Check capabilities match text-only specifications (no vision)
     nemotron = get_model("nemotron_3_5_lightning_30b_a3b")
     assert set(nemotron.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
     gemma = get_model("gemma_4_31b_it")
     assert set(gemma.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic", "video"}
-    glm = get_model("glm_5_3_flash")
-    assert set(glm.capabilities) == {"text", "reasoning", "tool_use", "agentic"}
-    assert not model_exists("muse_glimmer_30b")
     gpt = get_model("gpt_oss_20b")
     assert set(gpt.capabilities) == {"text", "reasoning", "coding"}
     print("  Registry model metadata verified [OK]")
@@ -437,6 +453,109 @@ def test_18_nvidia_provider_response_hardening_and_timeout():
     print("  NVIDIAProvider response hardening & configurable timeout passed [OK]")
 
 
+def test_19_huggingface_provider_imports():
+    print("19. Testing Hugging Face provider imports...")
+    from app.providers.huggingface_provider import HuggingFaceProvider as HFP
+    assert HFP is not None
+    print("  Hugging Face provider imports passed [OK]")
+
+
+def test_20_huggingface_provider_satisfies_base():
+    print("20. Testing Hugging Face provider satisfies BaseProvider...")
+    from app.providers.huggingface_provider import HuggingFaceProvider
+    p = HuggingFaceProvider(api_key="test-hf-key")
+    assert isinstance(p, BaseProvider)
+    assert p.name == "huggingface"
+    assert hasattr(p, "generate") and callable(p.generate)
+    assert hasattr(p, "is_available") and callable(p.is_available)
+    assert p.is_available() is True
+
+    p_empty = HuggingFaceProvider(api_key="")
+    assert p_empty.is_available() is False
+    print("  Hugging Face provider satisfies BaseProvider [OK]")
+
+
+def test_21_huggingface_base_url_and_timeout():
+    print("21. Testing Hugging Face base URL and timeout defaults...")
+    from app.providers.huggingface_provider import HuggingFaceProvider
+    p = HuggingFaceProvider(api_key="test-key")
+    assert p.base_url == "https://router.huggingface.co/v1"
+    assert p.timeout == settings.HUGGINGFACE_INFERENCE_TIMEOUT
+    assert p.timeout == 85.0
+    print("  Hugging Face base URL and timeout verified [OK]")
+
+
+def test_22_provider_factory_returns_huggingface():
+    print("22. Testing provider factory returns HuggingFaceProvider...")
+    from app.providers.huggingface_provider import HuggingFaceProvider
+    p = get_provider("huggingface")
+    assert isinstance(p, HuggingFaceProvider)
+    assert p.name == "huggingface"
+    assert "huggingface" in _PROVIDER_REGISTRY
+    assert "nvidia" in _PROVIDER_REGISTRY
+    print("  Provider factory returns HuggingFaceProvider [OK]")
+
+
+def test_23_huggingface_mocked_generate_and_errors():
+    print("23. Testing HuggingFaceProvider mocked generation and error mapping...")
+    from app.providers.huggingface_provider import HuggingFaceProvider
+    prov = HuggingFaceProvider(api_key="test-hf-token")
+
+    # Mock 200 Success
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "Generated reply from Hugging Face"}}]
+    }
+    with patch("httpx.Client.post", return_value=mock_resp):
+        res = prov.generate("Hello HF")
+        assert res == "Generated reply from Hugging Face"
+
+    # Mock 429 Rate Limit
+    mock_429 = MagicMock()
+    mock_429.status_code = 429
+    mock_429.json.return_value = {"error": {"message": "Rate limit exceeded (429)"}}
+    with patch("httpx.Client.post", return_value=mock_429):
+        try:
+            prov.generate("Rate limit HF")
+            assert False, "Expected ProviderRateLimitError"
+        except ProviderRateLimitError as e:
+            assert "rate limit or quota exceeded" in str(e).lower()
+
+    # Mock 503 Service Unavailable
+    mock_503 = MagicMock()
+    mock_503.status_code = 503
+    mock_503.json.return_value = {"error": {"message": "HF engine overloaded"}}
+    with patch("httpx.Client.post", return_value=mock_503):
+        try:
+            prov.generate("Overload HF")
+            assert False, "Expected ProviderUnavailableError"
+        except ProviderUnavailableError as e:
+            assert "temporarily unavailable" in str(e)
+
+    # Mock 504 Gateway Timeout
+    mock_504 = MagicMock()
+    mock_504.status_code = 504
+    mock_504.json.return_value = {"error": {"message": "Gateway Timeout"}}
+    with patch("httpx.Client.post", return_value=mock_504):
+        try:
+            prov.generate("Timeout HF")
+            assert False, "Expected ProviderTimeoutError"
+        except ProviderTimeoutError as e:
+            assert "gateway timeout" in str(e)
+
+    # Mock TimeoutException
+    import httpx
+    with patch("httpx.Client.post", side_effect=httpx.TimeoutException("Read timed out")):
+        try:
+            prov.generate("Timeout exception probe")
+            assert False, "Expected ProviderTimeoutError"
+        except ProviderTimeoutError as e:
+            assert "request timed out" in str(e)
+
+    print("  HuggingFaceProvider mocked generation and error mapping passed [OK]")
+
+
 class ProviderArchitectureTestCase(unittest.TestCase):
     def test_all_provider_architecture(self):
         test_1_nvidia_provider_imports()
@@ -458,6 +577,11 @@ class ProviderArchitectureTestCase(unittest.TestCase):
         test_17_job_runtime_no_nvidia_dependency()
         test_18_nvidia_provider_response_hardening_and_timeout()
         test_nvidia_provider_mocked_generate()
+        test_19_huggingface_provider_imports()
+        test_20_huggingface_provider_satisfies_base()
+        test_21_huggingface_base_url_and_timeout()
+        test_22_provider_factory_returns_huggingface()
+        test_23_huggingface_mocked_generate_and_errors()
 
 
 if __name__ == "__main__":

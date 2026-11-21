@@ -14,3 +14,7 @@ services:
         value: nvidia/nemotron-3.5-lightning-30b-a3b
       - key: NVIDIA_API_KEY
         sync: false
+      - key: ORANGE_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false

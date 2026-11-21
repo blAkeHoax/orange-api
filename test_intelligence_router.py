@@ -153,14 +153,13 @@ class TestIntelligenceRouter(unittest.TestCase):
         with self.assertRaises(UnknownModelError):
             get_model("muse_glimmer_30b")
 
-    def test_explicit_override_to_glm_preserved(self):
-        """Verify explicit override to GLM model is honored for text tasks."""
+    def test_explicit_override_retired_glm_rejected(self):
+        """Verify explicit override to retired GLM model raises IneligibleOverrideError."""
         req = AssistRequest(message="Inspect text", model="glm_5_3_flash")
         profile = build_task_profile(req)
-        decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "glm_5_3_flash")
-        self.assertEqual(decision.provider_model_id, "z-ai/glm-5.3-flash")
-        self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+        with self.assertRaises(IneligibleOverrideError) as cm:
+            self.router.route(profile)
+        self.assertIn("is currently unavailable", str(cm.exception))
 
     def test_ineligible_override_gpt_oss_lacks_video(self):
         """Verify GPT-OSS override fails if video modality is required."""
@@ -181,12 +180,29 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.router.route(profile)
 
     def test_valid_override_honored(self):
-        # Conversational request overridden to GLM
-        req = AssistRequest(message="Hello there", model="glm_5_3_flash")
+        # Conversational request overridden to Nemotron
+        req = AssistRequest(message="Hello there", model="nemotron_3_5_lightning_30b_a3b")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "glm_5_3_flash")
+        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
         self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+
+        # Conversational request overridden to Qwen when HF_TOKEN is configured
+        with patch.dict(os.environ, {"HF_TOKEN": "test-token"}):
+            req_qwen = AssistRequest(message="Hello Qwen", model="qwen_3_8_27b")
+            profile_qwen = build_task_profile(req_qwen)
+            decision_qwen = self.router.route(profile_qwen)
+            self.assertEqual(decision_qwen.selected_model_key, "qwen_3_8_27b")
+            self.assertEqual(decision_qwen.selection_step, "EXPLICIT_OVERRIDE")
+
+    def test_ineligible_override_unconfigured_hf_provider_rejected(self):
+        """Verify explicit override for Qwen raises IneligibleOverrideError when HF_TOKEN is unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            req = AssistRequest(message="Hello", model="qwen_3_8_27b")
+            profile = build_task_profile(req)
+            with self.assertRaises(IneligibleOverrideError) as cm:
+                self.router.route(profile)
+            self.assertIn("provider 'huggingface' is currently unconfigured or unavailable", str(cm.exception))
 
     def test_ineligible_override_lacks_capability(self):
         # GPT-OSS lacks 'tool_use' and 'agentic' required for agent_decision
@@ -198,18 +214,6 @@ class TestIntelligenceRouter(unittest.TestCase):
         profile = build_task_profile(req)
         with self.assertRaises(IneligibleOverrideError):
             self.router.route(profile)
-
-    def test_ineligible_override_available_model_lacks_capability(self):
-        # GLM-5.3-Flash lacks 'coding' required for coding task
-        req = AssistRequest(
-            message="Write code",
-            task_type="coding",
-            model="glm_5_3_flash",
-        )
-        profile = build_task_profile(req)
-        with self.assertRaises(IneligibleOverrideError) as cm:
-            self.router.route(profile)
-        self.assertIn("lacks required capabilities", str(cm.exception))
 
     def test_ineligible_override_lacks_modality(self):
         # GPT-OSS lacks 'video'
@@ -223,11 +227,11 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.router.route(profile)
 
     def test_ineligible_override_available_model_lacks_modality(self):
-        # GLM-5.3-Flash lacks 'video' modality
+        # Nemotron lacks 'video' modality
         req = AssistRequest(
             message="Describe clip",
             modalities=["video"],
-            model="glm_5_3_flash",
+            model="nemotron_3_5_lightning_30b_a3b",
         )
         profile = build_task_profile(req)
         with self.assertRaises(IneligibleOverrideError) as cm:
@@ -267,22 +271,25 @@ class TestIntelligenceRouter(unittest.TestCase):
         self.assertIn("is currently unavailable", str(cm.exception))
 
     def test_list_available_models_excludes_unavailable_models(self):
-        """Verify list_available_models() returns selectable models and excludes gpt_oss_20b and gemma_4_31b_it."""
+        """Verify list_available_models() returns selectable models and excludes gpt_oss_20b, gemma_4_31b_it, and retired glm_5_3_flash."""
         available = list_available_models()
         available_keys = {m.key for m in available}
         self.assertNotIn("gpt_oss_20b", available_keys)
         self.assertNotIn("gemma_4_31b_it", available_keys)
+        self.assertNotIn("glm_5_3_flash", available_keys)
         self.assertIn("nemotron_3_5_lightning_30b_a3b", available_keys)
-        self.assertIn("glm_5_3_flash", available_keys)
+        self.assertIn("qwen_3_8_27b", available_keys)
+        self.assertIn("gpt_oss_120b", available_keys)
 
     def test_eligible_explicit_overrides_succeed(self):
-        """Verify eligible explicit overrides for Nemotron and GLM all succeed."""
-        for model_key in ["nemotron_3_5_lightning_30b_a3b", "glm_5_3_flash"]:
-            req = AssistRequest(message="Hello there", model=model_key)
-            profile = build_task_profile(req)
-            decision = self.router.route(profile)
-            self.assertEqual(decision.selected_model_key, model_key)
-            self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+        """Verify eligible explicit overrides for Nemotron, Qwen, and GPT-OSS-120B all succeed."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-token"}):
+            for model_key in ["nemotron_3_5_lightning_30b_a3b", "qwen_3_8_27b", "gpt_oss_120b"]:
+                req = AssistRequest(message="Hello there", model=model_key)
+                profile = build_task_profile(req)
+                decision = self.router.route(profile)
+                self.assertEqual(decision.selected_model_key, model_key)
+                self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
 
     def test_unknown_override_model(self):
         req = AssistRequest(
@@ -314,12 +321,23 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(dec.selection_step, first_decision.selection_step)
             self.assertEqual(dec.fallback_candidates, first_decision.fallback_candidates)
 
-    def test_fallback_candidates_excludes_selected(self):
-        req = AssistRequest(message="Tell me a joke", task_type="conversational")
-        profile = build_task_profile(req)
-        decision = self.router.route(profile)
-        self.assertNotIn(decision.selected_model_key, decision.fallback_candidates)
-        self.assertTrue(len(decision.fallback_candidates) > 0)
+    def test_fallback_candidates_excludes_selected_when_hf_set(self):
+        with patch.dict(os.environ, {"HF_TOKEN": "test-token"}):
+            req = AssistRequest(message="Tell me a joke", task_type="conversational")
+            profile = build_task_profile(req)
+            decision = self.router.route(profile)
+            self.assertNotIn(decision.selected_model_key, decision.fallback_candidates)
+            self.assertTrue(len(decision.fallback_candidates) > 0)
+            self.assertIn("qwen_3_8_27b", decision.fallback_candidates)
+            self.assertIn("gpt_oss_120b", decision.fallback_candidates)
+
+    def test_fallback_candidates_empty_when_hf_unset(self):
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            req = AssistRequest(message="Tell me a joke", task_type="conversational")
+            profile = build_task_profile(req)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+            self.assertEqual(decision.fallback_candidates, [])
 
 
 class TestAPIEndpointRouting(unittest.TestCase):
@@ -379,17 +397,34 @@ class TestAPIEndpointRouting(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Unknown model identifier 'muse_glimmer_30b'", resp.json()["detail"])
 
-    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_explicit_override_glm_preserved(self, mock_generate):
-        mock_generate.return_value = "GLM response."
-
+    def test_api_explicit_override_retired_glm_rejected(self):
         resp = self.client.post(
             "/assist",
             json={"message": "Analyze prompt", "model": "glm_5_3_flash"},
         )
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn("z-ai/glm-5.3-flash", data["model"])
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("is currently unavailable", resp.json()["detail"])
+
+    @patch("app.providers.huggingface_provider.HuggingFaceProvider.generate")
+    def test_api_explicit_override_huggingface_qwen(self, mock_generate):
+        mock_generate.return_value = "Qwen response."
+        with patch.dict(os.environ, {"HF_TOKEN": "test-token"}):
+            resp = self.client.post(
+                "/assist",
+                json={"message": "Analyze prompt", "model": "qwen_3_8_27b"},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("Qwen/Qwen3.8-27B:fastest", data["model"])
+
+    def test_api_explicit_override_unconfigured_huggingface_rejected(self):
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            resp = self.client.post(
+                "/assist",
+                json={"message": "Analyze prompt", "model": "qwen_3_8_27b"},
+            )
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn("unconfigured or unavailable", resp.json()["detail"])
 
     def test_api_invalid_modality_returns_400(self):
         resp = self.client.post(
@@ -411,9 +446,9 @@ class TestAPIEndpointRouting(unittest.TestCase):
         resp = self.client.post(
             "/assist",
             json={
-                "message": "def solve(): pass",
-                "task_type": "coding",
-                "model": "glm_5_3_flash",
+                "message": "analyze video clip",
+                "modalities": ["video"],
+                "model": "nemotron_3_5_lightning_30b_a3b",
             },
         )
         self.assertEqual(resp.status_code, 400)
@@ -510,7 +545,7 @@ class TestAPIEndpointRouting(unittest.TestCase):
         _, kwargs = mock_generate.call_args
         self.assertEqual(
             kwargs.get("system_instruction"),
-            "You are Orange AI, an intelligent, helpful, and concise personal AI assistant.",
+            DEFAULT_SYSTEM_INSTRUCTION,
         )
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
@@ -545,7 +580,7 @@ class TestAPIEndpointRouting(unittest.TestCase):
         _, kwargs = mock_generate.call_args
         self.assertEqual(
             kwargs.get("system_instruction"),
-            "You are Orange AI, an intelligent, helpful, and concise personal AI assistant.",
+            DEFAULT_SYSTEM_INSTRUCTION,
         )
 
 

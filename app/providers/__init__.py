@@ -6,6 +6,7 @@ from app.providers.base import (
     ProviderTimeoutError,
 )
 from app.providers.nvidia_provider import NVIDIAProvider
+from app.providers.huggingface_provider import HuggingFaceProvider
 from app.providers.factory import get_provider
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "ProviderUnavailableError",
     "ProviderTimeoutError",
     "NVIDIAProvider",
+    "HuggingFaceProvider",
     "get_provider",
 ]

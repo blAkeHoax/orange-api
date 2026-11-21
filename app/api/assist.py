@@ -3,7 +3,7 @@ import functools
 import logging
 import time
 import anyio
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 
 from app.config import settings
 from app.models.schemas import (
@@ -24,6 +24,7 @@ from app.providers import (
     ProviderTimeoutError,
 )
 from app.utils.sanitizer import _sanitize_error
+from app.utils.auth import verify_api_key
 from app.utils.latency import log_latency, set_current_request_id, get_current_request_id
 
 logger = logging.getLogger("orange_api.assist")
@@ -34,6 +35,7 @@ assistant = AssistService()
 @router.post(
     "/assist",
     response_model=AssistResponse,
+    dependencies=[Depends(verify_api_key)],
 )
 async def assist(request: AssistRequest, raw_req: Request = None):
     """

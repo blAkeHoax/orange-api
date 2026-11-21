@@ -3,6 +3,7 @@ app/utils - Common utility modules for Orange API.
 """
 
 from app.utils.sanitizer import sanitize_error, _sanitize_error
+from app.utils.auth import verify_api_key
 from app.utils.latency import (
     generate_request_id,
     get_current_request_id,
@@ -15,6 +16,7 @@ from app.utils.latency import (
 )
 
 __all__ = [
+    "verify_api_key",
     "sanitize_error",
     "_sanitize_error",
     "generate_request_id",

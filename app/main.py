@@ -142,6 +142,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(assist_router)
 
+
+@app.on_event("startup")
+def startup_auth_check():
+    """Warn at startup if API authentication is disabled."""
+    if not settings.ORANGE_API_KEY:
+        logger.warning(
+            "SECURITY WARNING: ORANGE_API_KEY is not set. "
+            "POST /assist authentication is disabled (open pass-through mode)."
+        )
+
+
 @app.get("/")
 def root():
     return {

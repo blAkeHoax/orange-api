@@ -16,8 +16,12 @@ def sanitize_error(message: str) -> str:
     msg = str(message)
     msg = re.sub(r"Bearer\s+[A-Za-z0-9_\-\.]+", "Bearer ***", msg)
     msg = re.sub(r"nv" + r"api-[A-Za-z0-9_\-]+", "***", msg)
+    msg = re.sub(r"hf_[A-Za-z0-9_\-]+", "***", msg)
     if settings.NVIDIA_API_KEY and settings.NVIDIA_API_KEY in msg:
         msg = msg.replace(settings.NVIDIA_API_KEY, "***")
+    hf_tok = settings.get_hf_token()
+    if hf_tok and hf_tok in msg:
+        msg = msg.replace(hf_tok, "***")
     msg = re.sub(r"data:image/[a-zA-Z0-9\+\-\.]+;base64,[A-Za-z0-9+/=]+", "data:image/...;base64,[REDACTED]", msg)
     msg = re.sub(r"[A-Za-z0-9+/=]{128,}", "[BASE64_DATA_REDACTED]", msg)
     return msg

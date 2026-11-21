@@ -61,8 +61,8 @@ _MODELS: Dict[str, ModelInfo] = {
         provider="nvidia",
         display_name="GLM-5-3-Flash",
         capabilities=["text", "reasoning", "tool_use", "agentic"],
-        description="Fast reasoning model optimized for structured text and tool execution.",
-        is_available=True,
+        description="Fast reasoning model optimized for structured text and tool execution (retired).",
+        is_available=False,
     ),
     "gemma_4_31b_it": ModelInfo(
         key="gemma_4_31b_it",
@@ -72,6 +72,24 @@ _MODELS: Dict[str, ModelInfo] = {
         capabilities=["text", "reasoning", "coding", "tool_use", "agentic", "video"],
         description="High-capacity instruction-tuned model supporting text, coding, and agentic workflows.",
         is_available=False,
+    ),
+    "qwen_3_8_27b": ModelInfo(
+        key="qwen_3_8_27b",
+        provider_model_id="Qwen/Qwen3.8-27B:fastest",
+        provider="huggingface",
+        display_name="Qwen 3.8 27B",
+        capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
+        description="High-performance open weights reasoning and code model via Hugging Face Inference Providers.",
+        is_available=True,
+    ),
+    "gpt_oss_120b": ModelInfo(
+        key="gpt_oss_120b",
+        provider_model_id="openai/gpt-oss-120b:fastest",
+        provider="huggingface",
+        display_name="GPT-OSS 120B",
+        capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
+        description="High-capacity open reasoning and agentic model via Hugging Face Inference Providers.",
+        is_available=True,
     ),
 }
 
