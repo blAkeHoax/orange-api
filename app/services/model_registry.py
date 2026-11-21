@@ -14,6 +14,7 @@ to Phase 6B/6C.
 
 from dataclasses import dataclass
 from typing import List, Dict, Optional
+from app.config import settings
 
 
 class UnknownModelError(ValueError):
@@ -89,6 +90,24 @@ _MODELS: Dict[str, ModelInfo] = {
         display_name="GPT-OSS 120B",
         capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
         description="High-capacity open reasoning and agentic model via Hugging Face Inference Providers.",
+        is_available=True,
+    ),
+    "sambanova_coder": ModelInfo(
+        key="sambanova_coder",
+        provider_model_id=settings.DEFAULT_SAMBANOVA_MODEL,
+        provider="sambanova",
+        display_name="SambaNova Qwen 2.5 Coder 32B",
+        capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
+        description="High-performance code generation and structured reasoning model via SambaNova Cloud.",
+        is_available=True,
+    ),
+    "sambanova_reasoning": ModelInfo(
+        key="sambanova_reasoning",
+        provider_model_id=settings.SAMBANOVA_REASONING_MODEL,
+        provider="sambanova",
+        display_name="SambaNova Llama 3.3 70B",
+        capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
+        description="Deep reasoning and synthesis model via SambaNova Cloud.",
         is_available=True,
     ),
 }

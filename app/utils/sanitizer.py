@@ -22,6 +22,9 @@ def sanitize_error(message: str) -> str:
     hf_tok = settings.get_hf_token()
     if hf_tok and hf_tok in msg:
         msg = msg.replace(hf_tok, "***")
+    sb_key = settings.get_sambanova_api_key()
+    if sb_key and sb_key in msg:
+        msg = msg.replace(sb_key, "***")
     msg = re.sub(r"data:image/[a-zA-Z0-9\+\-\.]+;base64,[A-Za-z0-9+/=]+", "data:image/...;base64,[REDACTED]", msg)
     msg = re.sub(r"[A-Za-z0-9+/=]{128,}", "[BASE64_DATA_REDACTED]", msg)
     return msg

@@ -46,6 +46,7 @@ from app.services.model_registry import (
 )
 from app.services.llm_service import LLMService
 from app.services.assist_service import AssistService, DEFAULT_SYSTEM_INSTRUCTION
+from app.config import settings
 
 
 class TestTaskProfileBuilder(unittest.TestCase):
@@ -188,9 +189,29 @@ class TestIntelligenceRouter(unittest.TestCase):
         self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
         self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
 
+    def test_coding_routing_sambanova_when_sambanova_configured(self):
+        """Verify coding task automatically routes to SambaNova Coder when SAMBANOVA_API_KEY is configured."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-sb-key", "HF_TOKEN": "test-hf-token"}):
+            req_inferred = AssistRequest(message="debug this Python function:\ndef test(): pass")
+            profile_inferred = build_task_profile(req_inferred)
+            decision_inferred = self.router.route(profile_inferred)
+            self.assertEqual(decision_inferred.selected_model_key, "sambanova_coder")
+            self.assertEqual(decision_inferred.provider_model_id, settings.DEFAULT_SAMBANOVA_MODEL)
+            self.assertEqual(decision_inferred.selection_step, "TASK_SPECIALIZATION")
+            self.assertIn("qwen_3_8_27b", decision_inferred.fallback_candidates)
+            self.assertIn("nemotron_3_5_lightning_30b_a3b", decision_inferred.fallback_candidates)
+
+            # Explicit coding task_type
+            req_explicit = AssistRequest(message="write function", task_type="coding")
+            profile_explicit = build_task_profile(req_explicit)
+            decision_explicit = self.router.route(profile_explicit)
+            self.assertEqual(decision_explicit.selected_model_key, "sambanova_coder")
+            self.assertEqual(decision_explicit.provider_model_id, settings.DEFAULT_SAMBANOVA_MODEL)
+            self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
+
     def test_coding_routing_qwen_when_hf_configured(self):
-        """Verify coding task automatically routes to Qwen 3.8 27B when HF_TOKEN is configured."""
-        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+        """Verify coding task automatically routes to Qwen 3.8 27B when HF_TOKEN is configured and SambaNova is unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token", "SAMBANOVA_API_KEY": ""}):
             # Inferred coding prompt
             req_inferred = AssistRequest(message="debug this Python function:\ndef test(): pass")
             profile_inferred = build_task_profile(req_inferred)
@@ -209,17 +230,48 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
 
     def test_coding_routing_nemotron_when_hf_unset(self):
-        """Verify coding task falls back to Nemotron when HF_TOKEN is unset."""
-        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+        """Verify coding task falls back to Nemotron when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="debug this Python function:\ndef test(): pass")
             profile = build_task_profile(req)
             decision = self.router.route(profile)
             self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
             self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
 
+    def test_reasoning_routing_sambanova_when_sambanova_configured(self):
+        """Verify complex reasoning & briefing synthesis automatically route to SambaNova Llama 3.3 70B."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-sb-key", "HF_TOKEN": "test-hf-token"}):
+            prompts = [
+                "Synthesize the morning briefing for today.",
+                "Please generate the daily briefing from my notes.",
+                "Draft an executive summary of this quarterly review.",
+                "Provide an architectural comparison between monolith and microservices.",
+                "What are the architectural trade-offs of using event sourcing?",
+                "Provide a deep analysis of this distributed deadlock.",
+            ]
+            for prompt in prompts:
+                with self.subTest(prompt=prompt):
+                    req = AssistRequest(message=prompt)
+                    profile = build_task_profile(req)
+                    self.assertEqual(profile.task_type, TaskType.REASONING)
+                    decision = self.router.route(profile)
+                    self.assertEqual(decision.selected_model_key, "sambanova_reasoning")
+                    self.assertEqual(decision.provider_model_id, settings.SAMBANOVA_REASONING_MODEL)
+                    self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
+                    self.assertIn("gpt_oss_120b", decision.fallback_candidates)
+                    self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
+
+            # Explicit task_type="reasoning"
+            req_explicit = AssistRequest(message="Analyze bottleneck options", task_type="reasoning")
+            profile_explicit = build_task_profile(req_explicit)
+            decision_explicit = self.router.route(profile_explicit)
+            self.assertEqual(decision_explicit.selected_model_key, "sambanova_reasoning")
+            self.assertEqual(decision_explicit.provider_model_id, settings.SAMBANOVA_REASONING_MODEL)
+            self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
+
     def test_reasoning_routing_gpt_oss_120b_when_hf_configured(self):
-        """Verify complex reasoning & briefing synthesis automatically route to GPT-OSS 120B."""
-        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+        """Verify complex reasoning & briefing synthesis automatically route to GPT-OSS 120B when HF configured and SambaNova unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token", "SAMBANOVA_API_KEY": ""}):
             prompts = [
                 "Synthesize the morning briefing for today.",
                 "Please generate the daily briefing from my notes.",
@@ -247,17 +299,28 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
 
     def test_reasoning_routing_nemotron_when_hf_unset(self):
-        """Verify reasoning/briefing synthesis falls back to Nemotron when HF_TOKEN is unset."""
-        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+        """Verify reasoning/briefing synthesis falls back to Nemotron when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="Synthesize the morning briefing for today.")
             profile = build_task_profile(req)
             decision = self.router.route(profile)
             self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
             self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
 
+    def test_structured_output_routing_to_sambanova_when_sambanova_configured(self):
+        """Verify structured output requests route to SambaNova Coder when SAMBANOVA_API_KEY is configured."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-sb-key", "HF_TOKEN": "test-hf-token"}):
+            req = AssistRequest(message="Extract user contacts and return as valid json")
+            profile = build_task_profile(req)
+            self.assertTrue(profile.requires_structured_output)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "sambanova_coder")
+            self.assertEqual(decision.provider_model_id, settings.DEFAULT_SAMBANOVA_MODEL)
+            self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
+
     def test_structured_output_routing_to_qwen_when_hf_configured(self):
-        """Verify structured output requests route to Qwen 3.8 27B when HF_TOKEN is configured."""
-        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+        """Verify structured output requests route to Qwen 3.8 27B when HF_TOKEN is configured and SambaNova unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="Extract user contacts and return as valid json")
             profile = build_task_profile(req)
             self.assertTrue(profile.requires_structured_output)
@@ -267,8 +330,8 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
 
     def test_structured_output_routing_falls_back_to_nemotron_when_hf_unset(self):
-        """Verify structured output requests fall back to Nemotron when HF_TOKEN is unset."""
-        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+        """Verify structured output requests fall back to Nemotron when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="Extract user contacts and return as valid json")
             profile = build_task_profile(req)
             self.assertTrue(profile.requires_structured_output)
@@ -432,9 +495,44 @@ class TestIntelligenceRouter(unittest.TestCase):
         self.assertIn("qwen_3_8_27b", available_keys)
         self.assertIn("gpt_oss_120b", available_keys)
 
+    def test_sambanova_models_available_in_registry(self):
+        """Verify SambaNova models appear in available models list when SAMBANOVA_API_KEY is configured."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-key"}):
+            available = [m.key for m in list_available_models()]
+            self.assertIn("sambanova_coder", available)
+            self.assertIn("sambanova_reasoning", available)
+
+    def test_sambanova_models_filtered_when_key_unset(self):
+        """Verify SambaNova models are excluded from router when SAMBANOVA_API_KEY is unset."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": ""}):
+            all_router_models = [
+                m.key for m in list_available_models()
+                if self.router._is_model_provider_available(m)
+            ]
+            self.assertNotIn("sambanova_coder", all_router_models)
+            self.assertNotIn("sambanova_reasoning", all_router_models)
+
+    def test_sambanova_eligible_explicit_overrides_succeed(self):
+        """Verify eligible explicit overrides for SambaNova models succeed."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-key"}):
+            for model_key in ["sambanova_coder", "sambanova_reasoning"]:
+                req = AssistRequest(message="Hello there", model=model_key)
+                profile = build_task_profile(req)
+                decision = self.router.route(profile)
+                self.assertEqual(decision.selected_model_key, model_key)
+                self.assertEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+
+    def test_sambanova_unconfigured_override_rejected(self):
+        """Verify explicit override for SambaNova raises IneligibleOverrideError when key is unset."""
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": ""}):
+            req = AssistRequest(message="Hello", model="sambanova_coder")
+            profile = build_task_profile(req)
+            with self.assertRaises(IneligibleOverrideError):
+                self.router.route(profile)
+
     def test_eligible_explicit_overrides_succeed(self):
         """Verify eligible explicit overrides for Nemotron, Qwen, and GPT-OSS-120B all succeed."""
-        with patch.dict(os.environ, {"HF_TOKEN": "test-token"}):
+        with patch.dict(os.environ, {"HF_TOKEN": "test-token", "SAMBANOVA_API_KEY": ""}):
             for model_key in ["nemotron_3_5_lightning_30b_a3b", "qwen_3_8_27b", "gpt_oss_120b"]:
                 req = AssistRequest(message="Hello there", model=model_key)
                 profile = build_task_profile(req)
@@ -453,7 +551,17 @@ class TestIntelligenceRouter(unittest.TestCase):
 
     def test_auto_model_treated_as_dynamic_routing(self):
         """Verify model='auto' is not treated as an override and uses dynamic routing."""
-        with patch.dict(os.environ, {"HF_TOKEN": "hf_test_token"}):
+        # 1. With SambaNova configured, coding routes to sambanova_coder
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "sb_test_token", "HF_TOKEN": "hf_test_token"}):
+            req_code = AssistRequest(message="Write a python script", task_type="coding", model="auto")
+            profile_code = build_task_profile(req_code)
+            self.assertIsNone(profile_code.override_model)
+            dec_code = self.router.route(profile_code)
+            self.assertEqual(dec_code.selected_model_key, "sambanova_coder")
+            self.assertEqual(dec_code.selection_step, "TASK_SPECIALIZATION")
+
+        # 2. With only HF configured, coding routes to qwen_3_8_27b
+        with patch.dict(os.environ, {"HF_TOKEN": "hf_test_token", "SAMBANOVA_API_KEY": ""}):
             # Coding with model="auto" routes to Qwen
             req_code = AssistRequest(message="Write a python script", task_type="coding", model="auto")
             profile_code = build_task_profile(req_code)
@@ -636,6 +744,28 @@ class TestAPIEndpointRouting(unittest.TestCase):
             resp = self.client.post(
                 "/assist",
                 json={"message": "Analyze prompt", "model": "qwen_3_8_27b"},
+            )
+            self.assertEqual(resp.status_code, 400)
+            self.assertIn("unconfigured or unavailable", resp.json()["detail"])
+
+    @patch("app.providers.sambanova_provider.SambaNovaProvider.generate")
+    def test_api_explicit_override_sambanova(self, mock_generate):
+        mock_generate.return_value = "SambaNova response."
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-token"}):
+            resp = self.client.post(
+                "/assist",
+                json={"message": "Analyze prompt", "model": "sambanova_coder"},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["model"], f"sambanova:{settings.DEFAULT_SAMBANOVA_MODEL}")
+            self.assertEqual(data["reply"], "SambaNova response.")
+
+    def test_api_explicit_override_unconfigured_sambanova_rejected(self):
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": ""}):
+            resp = self.client.post(
+                "/assist",
+                json={"message": "Analyze prompt", "model": "sambanova_coder"},
             )
             self.assertEqual(resp.status_code, 400)
             self.assertIn("unconfigured or unavailable", resp.json()["detail"])

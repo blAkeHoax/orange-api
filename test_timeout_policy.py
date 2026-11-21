@@ -45,6 +45,7 @@ from app.main import app
 from app.config import settings
 from app.providers.nvidia_provider import NVIDIAProvider
 from app.providers.huggingface_provider import HuggingFaceProvider
+from app.providers.sambanova_provider import SambaNovaProvider
 from app.providers.base import ProviderTimeoutError, ProviderError
 from app.models.schemas import AssistRequest
 from app.services.model_registry import get_model, model_exists
@@ -137,6 +138,38 @@ class TestPhase7ATimeoutPolicy(unittest.TestCase):
         )
         with patch.dict(os.environ, {"HF_TOKEN": "test-key"}):
             resp = self.client.post("/assist", json={"message": "Analyze this", "model": "qwen_3_8_27b"})
+            self.assertEqual(resp.status_code, 504)
+
+    def test_01c_sambanova_provider_default_timeout_is_85s(self):
+        """1c. SambaNova provider receives the intended 85-second timeout default."""
+        self.assertEqual(settings.SAMBANOVA_INFERENCE_TIMEOUT, 85.0)
+
+        prov = SambaNovaProvider(api_key="test-key")
+        self.assertEqual(prov.timeout, 85.0)
+
+        # Explicit constructor override
+        prov_custom = SambaNovaProvider(api_key="test-key", timeout=40.0)
+        self.assertEqual(prov_custom.timeout, 40.0)
+
+        # Explicit kwargs override in generate()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        with patch("httpx.Client.post", return_value=mock_resp) as mock_post:
+            prov.generate("test prompt", timeout=25.0)
+            mock_post.assert_called_once()
+            self.assertEqual(mock_post.call_args[1].get("timeout") or 25.0, 25.0)
+
+    @patch("app.providers.sambanova_provider.SambaNovaProvider.generate")
+    def test_02c_sambanova_timeout_maps_to_sanitized_504(self, mock_generate):
+        """2c. SambaNova provider timeout maps to sanitized HTTP 504 behavior."""
+        mock_generate.side_effect = ProviderTimeoutError(
+            "SambaNova gateway timeout with Bearer sb_secret_12345: Read timed out"
+        )
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-key"}):
+            resp = self.client.post("/assist", json={"message": "Analyze this", "model": "sambanova_coder"})
             self.assertEqual(resp.status_code, 504)
             data = resp.json()
             detail = data.get("detail", "")

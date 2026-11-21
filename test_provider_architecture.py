@@ -140,6 +140,8 @@ def test_5_all_four_models_in_registry():
     assert "glm_5_3_flash" in keys
     assert "qwen_3_8_27b" in keys
     assert "gpt_oss_120b" in keys
+    assert "sambanova_coder" in keys
+    assert "sambanova_reasoning" in keys
     assert "muse_glimmer_30b" not in keys
 
     # Check GLM is retired
@@ -156,6 +158,17 @@ def test_5_all_four_models_in_registry():
     assert gpt120.provider == "huggingface"
     assert gpt120.is_available is True
     assert set(gpt120.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    # Check SambaNova models
+    sb_coder = get_model("sambanova_coder")
+    assert sb_coder.provider == "sambanova"
+    assert sb_coder.is_available is True
+    assert set(sb_coder.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    sb_reason = get_model("sambanova_reasoning")
+    assert sb_reason.provider == "sambanova"
+    assert sb_reason.is_available is True
+    assert set(sb_reason.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
     # Check capabilities match text-only specifications (no vision)
     nemotron = get_model("nemotron_3_5_lightning_30b_a3b")
@@ -556,6 +569,121 @@ def test_23_huggingface_mocked_generate_and_errors():
     print("  HuggingFaceProvider mocked generation and error mapping passed [OK]")
 
 
+def test_24_sambanova_provider_imports():
+    print("24. Testing SambaNova provider imports...")
+    from app.providers.sambanova_provider import SambaNovaProvider as SBP
+    assert SBP is not None
+    print("  SambaNova provider imports passed [OK]")
+
+
+def test_25_sambanova_provider_satisfies_base():
+    print("25. Testing SambaNova provider satisfies BaseProvider...")
+    from app.providers.sambanova_provider import SambaNovaProvider
+    p = SambaNovaProvider(api_key="test-sb-key")
+    assert isinstance(p, BaseProvider)
+    assert p.name == "sambanova"
+    assert hasattr(p, "generate") and callable(p.generate)
+    assert hasattr(p, "is_available") and callable(p.is_available)
+    assert p.is_available() is True
+
+    p_empty = SambaNovaProvider(api_key="")
+    assert p_empty.is_available() is False
+    print("  SambaNova provider satisfies BaseProvider [OK]")
+
+
+def test_26_sambanova_base_url_and_timeout():
+    print("26. Testing SambaNova base URL and timeout defaults...")
+    from app.providers.sambanova_provider import SambaNovaProvider
+    p = SambaNovaProvider(api_key="test-key")
+    assert p.base_url == "https://api.sambanova.ai/v1"
+    assert p.timeout == settings.SAMBANOVA_INFERENCE_TIMEOUT
+    assert p.timeout == 85.0
+    print("  SambaNova base URL and timeout verified [OK]")
+
+
+def test_27_provider_factory_returns_sambanova():
+    print("27. Testing provider factory returns SambaNovaProvider...")
+    from app.providers.sambanova_provider import SambaNovaProvider
+    p = get_provider("sambanova")
+    assert isinstance(p, SambaNovaProvider)
+    assert p.name == "sambanova"
+    assert "sambanova" in _PROVIDER_REGISTRY
+    assert "huggingface" in _PROVIDER_REGISTRY
+    assert "nvidia" in _PROVIDER_REGISTRY
+    print("  Provider factory returns SambaNovaProvider [OK]")
+
+
+def test_28_sambanova_mocked_generate_and_errors():
+    print("28. Testing SambaNovaProvider mocked generation and error mapping...")
+    from app.providers.sambanova_provider import SambaNovaProvider
+    prov = SambaNovaProvider(api_key="test-sb-token")
+
+    # Mock 200 Success
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "Generated reply from SambaNova"}}]
+    }
+    with patch("httpx.Client.post", return_value=mock_resp):
+        res = prov.generate("Hello SambaNova")
+        assert res == "Generated reply from SambaNova"
+
+    # Mock 429 Rate Limit
+    mock_429 = MagicMock()
+    mock_429.status_code = 429
+    mock_429.json.return_value = {"error": {"message": "Rate limit reached"}}
+    with patch("httpx.Client.post", return_value=mock_429):
+        try:
+            prov.generate("Rate limit SB")
+            assert False, "Expected ProviderRateLimitError"
+        except ProviderRateLimitError as e:
+            assert "rate limit or quota exceeded" in str(e).lower()
+
+    # Mock 401 Auth Error
+    mock_401 = MagicMock()
+    mock_401.status_code = 401
+    mock_401.json.return_value = {"error": {"message": "Invalid API key"}}
+    with patch("httpx.Client.post", return_value=mock_401):
+        try:
+            prov.generate("Auth fail SB")
+            assert False, "Expected ProviderUnavailableError"
+        except ProviderUnavailableError as e:
+            assert "authentication failed" in str(e)
+
+    # Mock 503 Service Unavailable
+    mock_503 = MagicMock()
+    mock_503.status_code = 503
+    mock_503.json.return_value = {"error": {"message": "SambaNova engine overloaded"}}
+    with patch("httpx.Client.post", return_value=mock_503):
+        try:
+            prov.generate("Overload SB")
+            assert False, "Expected ProviderUnavailableError"
+        except ProviderUnavailableError as e:
+            assert "temporarily unavailable" in str(e)
+
+    # Mock 504 Gateway Timeout
+    mock_504 = MagicMock()
+    mock_504.status_code = 504
+    mock_504.json.return_value = {"error": {"message": "Gateway Timeout"}}
+    with patch("httpx.Client.post", return_value=mock_504):
+        try:
+            prov.generate("Timeout SB")
+            assert False, "Expected ProviderTimeoutError"
+        except ProviderTimeoutError as e:
+            assert "gateway timeout" in str(e)
+
+    # Mock TimeoutException
+    import httpx
+    with patch("httpx.Client.post", side_effect=httpx.TimeoutException("Read timed out")):
+        try:
+            prov.generate("Timeout exception probe")
+            assert False, "Expected ProviderTimeoutError"
+        except ProviderTimeoutError as e:
+            assert "request timed out" in str(e)
+
+    print("  SambaNovaProvider mocked generation and error mapping passed [OK]")
+
+
 class ProviderArchitectureTestCase(unittest.TestCase):
     def test_all_provider_architecture(self):
         test_1_nvidia_provider_imports()
@@ -582,6 +710,11 @@ class ProviderArchitectureTestCase(unittest.TestCase):
         test_21_huggingface_base_url_and_timeout()
         test_22_provider_factory_returns_huggingface()
         test_23_huggingface_mocked_generate_and_errors()
+        test_24_sambanova_provider_imports()
+        test_25_sambanova_provider_satisfies_base()
+        test_26_sambanova_base_url_and_timeout()
+        test_27_provider_factory_returns_sambanova()
+        test_28_sambanova_mocked_generate_and_errors()
 
 
 if __name__ == "__main__":

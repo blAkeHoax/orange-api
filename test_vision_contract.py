@@ -15,10 +15,16 @@ Verifies:
 """
 
 import unittest
+import os
+import sys
 from unittest.mock import patch, MagicMock
 import base64
 from pydantic import ValidationError
 from fastapi.testclient import TestClient
+
+api_root = os.path.dirname(os.path.abspath(__file__))
+if api_root not in sys.path:
+    sys.path.insert(0, api_root)
 
 from app.main import app
 from app.models.schemas import AssistRequest, AssistResponse

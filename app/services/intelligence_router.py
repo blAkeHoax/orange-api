@@ -54,10 +54,21 @@ class RouteDecision:
     selection_step: str
 
 
-# Canonical role specialization mapping (internal model keys only)
+# Task specialization preference order (internal model keys evaluated in order of preference)
+_TASK_SPECIALIZATIONS: Dict[TaskType, List[str]] = {
+    TaskType.CODING: ["sambanova_coder", "qwen_3_8_27b", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.REASONING: ["sambanova_reasoning", "gpt_oss_120b", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.AGENT_DECISION: ["nemotron_3_5_lightning_30b_a3b"],
+    TaskType.JOB_STEP: ["nemotron_3_5_lightning_30b_a3b"],
+    TaskType.VIDEO_ANALYSIS: ["gemma_4_31b_it"],
+    TaskType.CONVERSATIONAL: ["nemotron_3_5_lightning_30b_a3b"],
+    TaskType.GENERAL: ["nemotron_3_5_lightning_30b_a3b"],
+}
+
+# Canonical role specialization mapping (top preferred internal model key per task)
 _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
-    TaskType.CODING: "qwen_3_8_27b",
-    TaskType.REASONING: "gpt_oss_120b",
+    TaskType.CODING: "sambanova_coder",
+    TaskType.REASONING: "sambanova_reasoning",
     TaskType.AGENT_DECISION: "nemotron_3_5_lightning_30b_a3b",
     TaskType.JOB_STEP: "nemotron_3_5_lightning_30b_a3b",
     TaskType.VIDEO_ANALYSIS: "gemma_4_31b_it",
@@ -65,9 +76,11 @@ _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
     TaskType.GENERAL: "nemotron_3_5_lightning_30b_a3b",
 }
 
-# Static deterministic tie-break ordering across the four-model foundation and legacy models
+# Static deterministic tie-break ordering across the foundation and legacy models
 _STATIC_PRIORITY_ORDER: List[str] = [
     "nemotron_3_5_lightning_30b_a3b",
+    "sambanova_coder",
+    "sambanova_reasoning",
     "qwen_3_8_27b",
     "gpt_oss_120b",
     "gemma_4_31b_it",
@@ -246,8 +259,8 @@ class IntelligenceRouter:
             and profile.task_type in (TaskType.CONVERSATIONAL, TaskType.GENERAL)
         )
         if not skip_step4_specialization:
-            specialized_key = _CANONICAL_SPECIALIZATIONS.get(profile.task_type)
-            if specialized_key:
+            specialized_keys = _TASK_SPECIALIZATIONS.get(profile.task_type, [])
+            for specialized_key in specialized_keys:
                 matching = [m for m in sorted_candidates if m.key == specialized_key]
                 if matching:
                     return make_decision(
@@ -278,9 +291,11 @@ class IntelligenceRouter:
         # ==========================================================
         if profile.requires_structured_output:
             structured_order = [
+                "sambanova_coder",
                 "qwen_3_8_27b",
                 "nemotron_3_5_lightning_30b_a3b",
                 "gpt_oss_120b",
+                "sambanova_reasoning",
                 "gemma_4_31b_it",
                 "glm_5_3_flash",
             ]

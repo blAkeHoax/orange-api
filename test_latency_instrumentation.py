@@ -17,10 +17,15 @@ Verifies:
 
 import io
 import sys
+import os
 import logging
 import unittest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+
+api_root = os.path.dirname(os.path.abspath(__file__))
+if api_root not in sys.path:
+    sys.path.insert(0, api_root)
 
 from app.main import app
 from app.providers.nvidia_provider import NVIDIAProvider
