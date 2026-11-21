@@ -118,7 +118,7 @@ def test_4_nvidia_model_ids_correct():
         "gpt_oss_20b": "openai/gpt-oss-20b",
         "nemotron_3_5_lightning_30b_a3b": "nvidia/nemotron-3.5-lightning-30b-a3b",
         "nvidia_coder": "minimaxai/minimax-m3.1-flash",
-        "nvidia_reasoning": "moonshotai/kimi-k3.1-pro",
+        "nvidia_reasoning": "mistralai/mistral-large-4",
         "glm_5_3_flash": "z-ai/glm-5.3-flash",
         "gemma_4_31b_it": "google/gemma-4-31b-it",
         "qwen_3_8_27b": "Qwen/Qwen3.8-27B:fastest",
@@ -157,7 +157,7 @@ def test_5_all_four_models_in_registry():
 
     # Check NVIDIA models
     assert settings.NVIDIA_CODER_MODEL == "minimaxai/minimax-m3.1-flash"
-    assert settings.NVIDIA_REASONING_MODEL == "moonshotai/kimi-k3.1-pro"
+    assert settings.NVIDIA_REASONING_MODEL == "mistralai/mistral-large-4"
     nv_coder = get_model("nvidia_coder")
     assert nv_coder.provider == "nvidia"
     assert nv_coder.provider_model_id == "minimaxai/minimax-m3.1-flash"
@@ -166,7 +166,7 @@ def test_5_all_four_models_in_registry():
 
     nv_reason = get_model("nvidia_reasoning")
     assert nv_reason.provider == "nvidia"
-    assert nv_reason.provider_model_id == "moonshotai/kimi-k3.1-pro"
+    assert nv_reason.provider_model_id == "mistralai/mistral-large-4"
     assert nv_reason.is_available is True
     assert set(nv_reason.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
