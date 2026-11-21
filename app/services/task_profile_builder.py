@@ -166,8 +166,12 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         if mod in ("video",):
             required_caps.add(mod)
 
-    # 4. Resolve explicit model override from AssistRequest.model
-    override_model = request.model.strip() if request.model and request.model.strip() else None
+    # 4. Resolve explicit model override from AssistRequest.model (treating 'auto' as dynamic routing)
+    override_model = (
+        request.model.strip()
+        if request.model and request.model.strip() and request.model.strip().lower() != "auto"
+        else None
+    )
 
     return TaskProfile(
         task_type=resolved_task_type,

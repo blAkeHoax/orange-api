@@ -451,6 +451,24 @@ class TestIntelligenceRouter(unittest.TestCase):
         with self.assertRaises(UnknownModelError):
             self.router.route(profile)
 
+    def test_auto_model_treated_as_dynamic_routing(self):
+        """Verify model='auto' is not treated as an override and uses dynamic routing."""
+        with patch.dict(os.environ, {"HF_TOKEN": "hf_test_token"}):
+            # Coding with model="auto" routes to Qwen
+            req_code = AssistRequest(message="Write a python script", task_type="coding", model="auto")
+            profile_code = build_task_profile(req_code)
+            self.assertIsNone(profile_code.override_model)
+            dec_code = self.router.route(profile_code)
+            self.assertEqual(dec_code.selected_model_key, "qwen_3_8_27b")
+            self.assertEqual(dec_code.selection_step, "TASK_SPECIALIZATION")
+
+            # Conversational with model="auto" routes to Nemotron
+            req_chat = AssistRequest(message="Hello there", model="auto")
+            profile_chat = build_task_profile(req_chat)
+            self.assertIsNone(profile_chat.override_model)
+            dec_chat = self.router.route(profile_chat)
+            self.assertEqual(dec_chat.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+
     def test_no_eligible_model_for_impossible_capabilities(self):
         impossible_profile = TaskProfile(
             task_type=TaskType.CONVERSATIONAL,
