@@ -32,7 +32,7 @@ class Settings:
     # Temporary default model for Phase 6A only; capability-based selection deferred to Phase 6B/6C
     DEFAULT_NVIDIA_MODEL: str = os.environ.get("DEFAULT_NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
     NVIDIA_CODER_MODEL: str = os.environ.get("NVIDIA_CODER_MODEL", "minimaxai/minimax-m3.1-flash")
-    NVIDIA_REASONING_MODEL: str = os.environ.get("NVIDIA_REASONING_MODEL", "mistralai/mistral-large-4")
+    NVIDIA_REASONING_MODEL: str = os.environ.get("NVIDIA_REASONING_MODEL", "mistralai/mistral-large-4-1t-a52b")
 
     @classmethod
     def get_nvidia_api_key(cls) -> str:
