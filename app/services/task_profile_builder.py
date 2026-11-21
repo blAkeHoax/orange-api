@@ -149,6 +149,10 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         required_caps = {"text", "reasoning"}
         preferred_caps = {"coding", "tool_use"}
 
+    elif resolved_task_type == TaskType.BRIEFING:
+        required_caps = {"text", "reasoning"}
+        preferred_caps = {"tool_use"}
+
     elif resolved_task_type == TaskType.CODING:
         required_caps = {"text", "reasoning", "coding"}
         preferred_caps = {"tool_use"}

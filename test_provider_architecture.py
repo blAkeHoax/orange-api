@@ -117,8 +117,9 @@ def test_4_nvidia_model_ids_correct():
     expected_ids = {
         "gpt_oss_20b": "openai/gpt-oss-20b",
         "nemotron_3_5_lightning_30b_a3b": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "nvidia_bolt": "nvidia/nemotron-3.5-bolt-e4b",
         "nvidia_coder": "minimaxai/minimax-m3.1-flash",
-        "nvidia_reasoning": "mistralai/mistral-large-4-1t-a52b",
+        "nvidia_reasoning": "nvidia/nemotron-3.5-bolt-e4b",
         "glm_5_3_flash": "z-ai/glm-5.3-flash",
         "gemma_4_31b_it": "google/gemma-4-31b-it",
         "qwen_3_8_27b": "Qwen/Qwen3.8-27B:fastest",
@@ -138,6 +139,7 @@ def test_5_all_four_models_in_registry():
     keys = {m.key for m in models}
     assert "gpt_oss_20b" in keys
     assert "nemotron_3_5_lightning_30b_a3b" in keys
+    assert "nvidia_bolt" in keys
     assert "nvidia_coder" in keys
     assert "nvidia_reasoning" in keys
     assert "gemma_4_31b_it" in keys
@@ -156,8 +158,16 @@ def test_5_all_four_models_in_registry():
     assert glm.is_available is False, "Expected glm_5_3_flash to be retired (is_available=False)"
 
     # Check NVIDIA models
+    assert settings.NVIDIA_BOLT_MODEL == "nvidia/nemotron-3.5-bolt-e4b"
     assert settings.NVIDIA_CODER_MODEL == "minimaxai/minimax-m3.1-flash"
-    assert settings.NVIDIA_REASONING_MODEL == "mistralai/mistral-large-4-1t-a52b"
+    assert settings.NVIDIA_REASONING_MODEL == "nvidia/nemotron-3.5-bolt-e4b"
+
+    nv_bolt = get_model("nvidia_bolt")
+    assert nv_bolt.provider == "nvidia"
+    assert nv_bolt.provider_model_id == "nvidia/nemotron-3.5-bolt-e4b"
+    assert nv_bolt.is_available is True
+    assert set(nv_bolt.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
     nv_coder = get_model("nvidia_coder")
     assert nv_coder.provider == "nvidia"
     assert nv_coder.provider_model_id == "minimaxai/minimax-m3.1-flash"
@@ -166,7 +176,7 @@ def test_5_all_four_models_in_registry():
 
     nv_reason = get_model("nvidia_reasoning")
     assert nv_reason.provider == "nvidia"
-    assert nv_reason.provider_model_id == "mistralai/mistral-large-4-1t-a52b"
+    assert nv_reason.provider_model_id == "nvidia/nemotron-3.5-bolt-e4b"
     assert nv_reason.is_available is True
     assert set(nv_reason.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
@@ -323,10 +333,10 @@ def test_14_llm_service_delegation():
     mock_prov = MockSuccessProvider()
     llm = LLMService(provider=mock_prov)
 
-    # 1. Default conversational routing (Phase 6B Intelligence Router selects nemotron_3_5_lightning_30b_a3b)
+    # 1. Default conversational routing (Phase 6B Intelligence Router selects nvidia_bolt)
     reply, model_name = llm.generate_response(message="Hello")
     assert "Mock reply" in reply
-    assert model_name == "nvidia:nvidia/nemotron-3.5-lightning-30b-a3b"
+    assert model_name == "nvidia:nvidia/nemotron-3.5-bolt-e4b"
 
     # 2. Explicit model key resolution via ModelRegistry
     reply2, model_name2 = llm.generate_response(message="Code something", model="nemotron_3_5_lightning_30b_a3b")

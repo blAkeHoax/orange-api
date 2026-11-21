@@ -56,6 +56,15 @@ _MODELS: Dict[str, ModelInfo] = {
         description="Fast and capable agentic model optimized for structured reasoning and tool execution.",
         is_available=True,
     ),
+    "nvidia_bolt": ModelInfo(
+        key="nvidia_bolt",
+        provider_model_id=settings.NVIDIA_BOLT_MODEL,
+        provider="nvidia",
+        display_name="Nemotron 3.5 Bolt E4B (NVIDIA NIM)",
+        capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
+        description="Ultra-fast 1.7s conversational and reasoning model hosted via NVIDIA NIM.",
+        is_available=True,
+    ),
     "nvidia_coder": ModelInfo(
         key="nvidia_coder",
         provider_model_id=settings.NVIDIA_CODER_MODEL,
@@ -69,9 +78,9 @@ _MODELS: Dict[str, ModelInfo] = {
         key="nvidia_reasoning",
         provider_model_id=settings.NVIDIA_REASONING_MODEL,
         provider="nvidia",
-        display_name="Mistral Large 4 (NVIDIA NIM)",
+        display_name="Nemotron 3.5 Bolt E4B (NVIDIA NIM)",
         capabilities=["text", "reasoning", "coding", "tool_use", "agentic"],
-        description="High-capacity deep reasoning and synthesis model hosted via NVIDIA NIM.",
+        description="Ultra-fast reasoning and synthesis model hosted via NVIDIA NIM.",
         is_available=True,
     ),
     "glm_5_3_flash": ModelInfo(

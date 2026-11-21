@@ -60,7 +60,7 @@ class TestImageFeatureRemovalContract(unittest.TestCase):
         data = resp.json()
         self.assertTrue(data["success"])
         self.assertEqual(data["reply"], "This is a helpful text response.")
-        self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+        self.assertIn("nvidia/nemotron-3.5-bolt-e4b", data["model"])
 
     def test_assist_request_schema_forbids_extra_fields(self):
         """AssistRequest schema strictly rejects extra fields including 'image'."""

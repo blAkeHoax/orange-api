@@ -157,12 +157,12 @@ class TestIntelligenceRouter(unittest.TestCase):
     def setUp(self):
         self.router = IntelligenceRouter()
 
-    def test_conversational_routing_nemotron(self):
+    def test_conversational_routing_bolt(self):
         req = AssistRequest(message="What is the capital of France?")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+        self.assertEqual(decision.selected_model_key, "nvidia_bolt")
+        self.assertEqual(decision.provider_model_id, settings.NVIDIA_BOLT_MODEL)
         self.assertIn("conversational", decision.reason.lower())
 
     def test_coding_routing_nemotron_when_gemma_unavailable(self):
@@ -262,7 +262,7 @@ class TestIntelligenceRouter(unittest.TestCase):
                     self.assertEqual(decision.provider_model_id, settings.SAMBANOVA_REASONING_MODEL)
                     self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
                     self.assertIn("gpt_oss_120b", decision.fallback_candidates)
-                    self.assertIn("nvidia_reasoning", decision.fallback_candidates)
+                    self.assertIn("nvidia_bolt", decision.fallback_candidates)
                     self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
 
             # Explicit task_type="reasoning"
@@ -293,7 +293,7 @@ class TestIntelligenceRouter(unittest.TestCase):
                     self.assertEqual(decision.selected_model_key, "gpt_oss_120b")
                     self.assertEqual(decision.provider_model_id, "openai/gpt-oss-120b:fastest")
                     self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
-                    self.assertIn("nvidia_reasoning", decision.fallback_candidates)
+                    self.assertIn("nvidia_bolt", decision.fallback_candidates)
                     self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
 
             # Explicit task_type="reasoning"
@@ -303,14 +303,27 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_explicit.selected_model_key, "gpt_oss_120b")
             self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
 
-    def test_reasoning_routing_nemotron_when_hf_unset(self):
-        """Verify reasoning/briefing synthesis routes to nvidia_reasoning when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+    def test_reasoning_routing_bolt_when_hf_unset(self):
+        """Verify reasoning synthesis routes to nvidia_bolt when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
         with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
-            req = AssistRequest(message="Synthesize the morning briefing for today.")
+            req = AssistRequest(message="Synthesize a deep analysis of this distributed deadlock.")
             profile = build_task_profile(req)
+            self.assertEqual(profile.task_type, TaskType.REASONING)
             decision = self.router.route(profile)
-            self.assertEqual(decision.selected_model_key, "nvidia_reasoning")
-            self.assertEqual(decision.provider_model_id, settings.NVIDIA_REASONING_MODEL)
+            self.assertEqual(decision.selected_model_key, "nvidia_bolt")
+            self.assertEqual(decision.provider_model_id, settings.NVIDIA_BOLT_MODEL)
+            self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
+            self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
+
+    def test_briefing_routing_to_nemotron_lightning(self):
+        """Verify briefing tasks route to nemotron_3_5_lightning_30b_a3b."""
+        req = AssistRequest(message="Synthesize the daily morning briefing", task_type="briefing")
+        profile = build_task_profile(req)
+        self.assertEqual(profile.task_type, TaskType.BRIEFING)
+        decision = self.router.route(profile)
+        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+        self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
 
     def test_structured_output_routing_to_sambanova_when_sambanova_configured(self):
         """Verify structured output requests route to SambaNova Coder when SAMBANOVA_API_KEY is configured."""
@@ -358,13 +371,17 @@ class TestIntelligenceRouter(unittest.TestCase):
                     self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
                     self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
 
-    def test_general_task_routes_to_nemotron(self):
-        """Verify general task archetype routes to Nemotron."""
-        req = AssistRequest(message="Hello general assistance", task_type="general")
-        profile = build_task_profile(req)
-        decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+    def test_conversational_and_general_route_to_bolt(self):
+        """Verify conversational and general tasks route to Nemotron 3.5 Bolt."""
+        for t_type in ["conversational", "general"]:
+            with self.subTest(task_type=t_type):
+                req = AssistRequest(message="Hello assistance", task_type=t_type)
+                profile = build_task_profile(req)
+                decision = self.router.route(profile)
+                self.assertEqual(decision.selected_model_key, "nvidia_bolt")
+                self.assertEqual(decision.provider_model_id, settings.NVIDIA_BOLT_MODEL)
+                self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
+                self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
 
     def test_model_registry_no_muse_glimmer(self):
         """Verify Muse Glimmer is completely absent from model registry."""
@@ -594,12 +611,13 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(dec_code.selected_model_key, "qwen_3_8_27b")
             self.assertEqual(dec_code.selection_step, "TASK_SPECIALIZATION")
 
-            # Conversational with model="auto" routes to Nemotron
+            # Conversational with model="auto" routes to Nemotron 3.5 Bolt
             req_chat = AssistRequest(message="Hello there", model="auto")
             profile_chat = build_task_profile(req_chat)
             self.assertIsNone(profile_chat.override_model)
             dec_chat = self.router.route(profile_chat)
-            self.assertEqual(dec_chat.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+            self.assertEqual(dec_chat.selected_model_key, "nvidia_bolt")
+            self.assertEqual(dec_chat.provider_model_id, settings.NVIDIA_BOLT_MODEL)
 
     def test_no_eligible_model_for_impossible_capabilities(self):
         impossible_profile = TaskProfile(
@@ -629,6 +647,7 @@ class TestIntelligenceRouter(unittest.TestCase):
             decision = self.router.route(profile)
             self.assertNotIn(decision.selected_model_key, decision.fallback_candidates)
             self.assertTrue(len(decision.fallback_candidates) > 0)
+            self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
             self.assertIn("qwen_3_8_27b", decision.fallback_candidates)
             self.assertIn("gpt_oss_120b", decision.fallback_candidates)
 
@@ -637,9 +656,9 @@ class TestIntelligenceRouter(unittest.TestCase):
             req = AssistRequest(message="Tell me a joke", task_type="conversational")
             profile = build_task_profile(req)
             decision = self.router.route(profile)
-            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+            self.assertEqual(decision.selected_model_key, "nvidia_bolt")
+            self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
             self.assertIn("nvidia_coder", decision.fallback_candidates)
-            self.assertIn("nvidia_reasoning", decision.fallback_candidates)
 
 
 class TestAPIEndpointRouting(unittest.TestCase):
@@ -652,13 +671,13 @@ class TestAPIEndpointRouting(unittest.TestCase):
         cls.client = TestClient(app)
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_conversational_defaults_to_nemotron(self, mock_generate):
+    def test_api_conversational_defaults_to_bolt(self, mock_generate):
         mock_generate.return_value = "Hello! I am ready to assist."
 
         resp = self.client.post("/assist", json={"message": "Good morning"})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+        self.assertIn(settings.NVIDIA_BOLT_MODEL, data["model"])
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
     def test_api_coding_routes_to_nvidia_coder(self, mock_generate):
@@ -860,21 +879,29 @@ class TestAPIEndpointRouting(unittest.TestCase):
             self.assertEqual(resp_code.status_code, 200)
             self.assertEqual(resp_code.json()["model"], f"nvidia:{settings.NVIDIA_CODER_MODEL}")
 
-            # Reasoning -> nvidia_reasoning
+            # Reasoning -> nvidia_reasoning (nvidia_bolt)
             resp_reason = self.client.post(
                 "/assist",
-                json={"message": "Synthesize the morning briefing", "task_type": "reasoning"},
+                json={"message": "Synthesize a deep comparative analysis", "task_type": "reasoning"},
             )
             self.assertEqual(resp_reason.status_code, 200)
-            self.assertEqual(resp_reason.json()["model"], f"nvidia:{settings.NVIDIA_REASONING_MODEL}")
+            self.assertEqual(resp_reason.json()["model"], f"nvidia:{settings.NVIDIA_BOLT_MODEL}")
 
-            # Conversational -> nemotron_3_5_lightning_30b_a3b
+            # Briefing -> nemotron_3_5_lightning_30b_a3b
+            resp_briefing = self.client.post(
+                "/assist",
+                json={"message": "Synthesize the morning briefing", "task_type": "briefing"},
+            )
+            self.assertEqual(resp_briefing.status_code, 200)
+            self.assertEqual(resp_briefing.json()["model"], f"nvidia:{settings.DEFAULT_NVIDIA_MODEL}")
+
+            # Conversational -> nvidia_bolt
             resp_chat = self.client.post(
                 "/assist",
                 json={"message": "Hello how are you?", "task_type": "conversational"},
             )
             self.assertEqual(resp_chat.status_code, 200)
-            self.assertEqual(resp_chat.json()["model"], f"nvidia:{settings.DEFAULT_NVIDIA_MODEL}")
+            self.assertEqual(resp_chat.json()["model"], f"nvidia:{settings.NVIDIA_BOLT_MODEL}")
 
     def test_api_invalid_modality_returns_400(self):
         resp = self.client.post(

@@ -346,7 +346,7 @@ class TestPhase7ATimeoutPolicy(unittest.TestCase):
         req = AssistRequest(message="Check text")
         profile = build_task_profile(req)
         decision = router.route(profile)
-        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+        self.assertEqual(decision.selected_model_key, "nvidia_bolt")
 
         # Confirm Muse and Llama Vision are NOT in registry
         self.assertFalse(model_exists("muse_glimmer_30b"))

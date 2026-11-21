@@ -119,7 +119,7 @@ class TestLatencyInstrumentation(unittest.TestCase):
         self.assertIn("routing", stages)
         routing_rec = next(r for r in records if r["stage"] == "routing")
         self.assertIn("duration_ms", routing_rec)
-        self.assertEqual(routing_rec["selected_model"], "nvidia/nemotron-3.5-lightning-30b-a3b")
+        self.assertEqual(routing_rec["selected_model"], "nvidia/nemotron-3.5-bolt-e4b")
 
         # 3. response_serialization
         self.assertIn("response_serialization", stages)

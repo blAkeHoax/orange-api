@@ -57,28 +57,31 @@ class RouteDecision:
 # Task specialization preference order (internal model keys evaluated in order of preference)
 _TASK_SPECIALIZATIONS: Dict[TaskType, List[str]] = {
     TaskType.CODING: ["sambanova_coder", "qwen_3_8_27b", "nvidia_coder", "nemotron_3_5_lightning_30b_a3b"],
-    TaskType.REASONING: ["sambanova_reasoning", "gpt_oss_120b", "nvidia_reasoning", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.REASONING: ["sambanova_reasoning", "gpt_oss_120b", "nvidia_bolt", "nvidia_reasoning", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.BRIEFING: ["nemotron_3_5_lightning_30b_a3b"],
     TaskType.AGENT_DECISION: ["nemotron_3_5_lightning_30b_a3b"],
     TaskType.JOB_STEP: ["nemotron_3_5_lightning_30b_a3b"],
     TaskType.VIDEO_ANALYSIS: ["gemma_4_31b_it"],
-    TaskType.CONVERSATIONAL: ["nemotron_3_5_lightning_30b_a3b"],
-    TaskType.GENERAL: ["nemotron_3_5_lightning_30b_a3b"],
+    TaskType.CONVERSATIONAL: ["nvidia_bolt", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.GENERAL: ["nvidia_bolt", "nemotron_3_5_lightning_30b_a3b"],
 }
 
 # Canonical role specialization mapping (top preferred internal model key per task)
 _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
     TaskType.CODING: "sambanova_coder",
     TaskType.REASONING: "sambanova_reasoning",
+    TaskType.BRIEFING: "nemotron_3_5_lightning_30b_a3b",
     TaskType.AGENT_DECISION: "nemotron_3_5_lightning_30b_a3b",
     TaskType.JOB_STEP: "nemotron_3_5_lightning_30b_a3b",
     TaskType.VIDEO_ANALYSIS: "gemma_4_31b_it",
-    TaskType.CONVERSATIONAL: "nemotron_3_5_lightning_30b_a3b",
-    TaskType.GENERAL: "nemotron_3_5_lightning_30b_a3b",
+    TaskType.CONVERSATIONAL: "nvidia_bolt",
+    TaskType.GENERAL: "nvidia_bolt",
 }
 
 # Static deterministic tie-break ordering across the foundation and legacy models
 _STATIC_PRIORITY_ORDER: List[str] = [
     "nemotron_3_5_lightning_30b_a3b",
+    "nvidia_bolt",
     "sambanova_coder",
     "sambanova_reasoning",
     "nvidia_coder",
@@ -302,6 +305,7 @@ class IntelligenceRouter:
                 "nemotron_3_5_lightning_30b_a3b",
                 "gpt_oss_120b",
                 "sambanova_reasoning",
+                "nvidia_bolt",
                 "nvidia_reasoning",
                 "sambanova_gemma_4_31b",
                 "sambanova_minimax_m3_1_flash",
