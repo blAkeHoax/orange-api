@@ -501,6 +501,9 @@ class TestIntelligenceRouter(unittest.TestCase):
             available = [m.key for m in list_available_models()]
             self.assertIn("sambanova_coder", available)
             self.assertIn("sambanova_reasoning", available)
+            self.assertIn("sambanova_gemma_4_31b", available)
+            self.assertIn("sambanova_minimax_m3_1_flash", available)
+            self.assertIn("sambanova_glm_5_3", available)
 
     def test_sambanova_models_filtered_when_key_unset(self):
         """Verify SambaNova models are excluded from router when SAMBANOVA_API_KEY is unset."""
@@ -511,11 +514,20 @@ class TestIntelligenceRouter(unittest.TestCase):
             ]
             self.assertNotIn("sambanova_coder", all_router_models)
             self.assertNotIn("sambanova_reasoning", all_router_models)
+            self.assertNotIn("sambanova_gemma_4_31b", all_router_models)
+            self.assertNotIn("sambanova_minimax_m3_1_flash", all_router_models)
+            self.assertNotIn("sambanova_glm_5_3", all_router_models)
 
     def test_sambanova_eligible_explicit_overrides_succeed(self):
         """Verify eligible explicit overrides for SambaNova models succeed."""
         with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-key"}):
-            for model_key in ["sambanova_coder", "sambanova_reasoning"]:
+            for model_key in [
+                "sambanova_coder",
+                "sambanova_reasoning",
+                "sambanova_gemma_4_31b",
+                "sambanova_minimax_m3_1_flash",
+                "sambanova_glm_5_3",
+            ]:
                 req = AssistRequest(message="Hello there", model=model_key)
                 profile = build_task_profile(req)
                 decision = self.router.route(profile)
@@ -760,6 +772,40 @@ class TestAPIEndpointRouting(unittest.TestCase):
             data = resp.json()
             self.assertEqual(data["model"], f"sambanova:{settings.DEFAULT_SAMBANOVA_MODEL}")
             self.assertEqual(data["reply"], "SambaNova response.")
+
+    @patch("app.providers.sambanova_provider.SambaNovaProvider.generate")
+    def test_api_explicit_override_all_sambanova_models(self, mock_generate):
+        mock_generate.return_value = "SambaNova multi-model response."
+        models_to_test = [
+            ("sambanova_coder", settings.DEFAULT_SAMBANOVA_MODEL),
+            ("sambanova_reasoning", "Meta-Llama-3.3-70B-Instruct"),
+            ("sambanova_gemma_4_31b", "gemma-4-31B-it"),
+            ("sambanova_minimax_m3_1_flash", "MiniMax-M3.1-Flash"),
+            ("sambanova_glm_5_3", "GLM-5.3"),
+        ]
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-token"}):
+            for model_key, expected_provider_id in models_to_test:
+                resp = self.client.post(
+                    "/assist",
+                    json={"message": "Analyze prompt", "model": model_key},
+                )
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                self.assertEqual(data["model"], f"sambanova:{expected_provider_id}")
+                self.assertEqual(data["reply"], "SambaNova multi-model response.")
+
+    def test_sambanova_models_in_fallback_candidates(self):
+        """Verify SambaNova models are included in fallback candidates when SAMBANOVA_API_KEY is configured."""
+        router = IntelligenceRouter()
+        with patch.dict(os.environ, {"SAMBANOVA_API_KEY": "test-key", "HF_TOKEN": "test-hf"}):
+            req = AssistRequest(message="Write a python function to sort a list", task_type="coding")
+            profile = build_task_profile(req)
+            decision = router.route(profile)
+            self.assertEqual(decision.selected_model_key, "sambanova_coder")
+            # Other eligible SambaNova models should be among fallback candidates
+            self.assertIn("sambanova_reasoning", decision.fallback_candidates)
+            self.assertIn("sambanova_gemma_4_31b", decision.fallback_candidates)
+            self.assertIn("sambanova_minimax_m3_1_flash", decision.fallback_candidates)
 
     def test_api_explicit_override_unconfigured_sambanova_rejected(self):
         with patch.dict(os.environ, {"SAMBANOVA_API_KEY": ""}):

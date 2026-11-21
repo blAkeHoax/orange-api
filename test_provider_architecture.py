@@ -142,6 +142,9 @@ def test_5_all_four_models_in_registry():
     assert "gpt_oss_120b" in keys
     assert "sambanova_coder" in keys
     assert "sambanova_reasoning" in keys
+    assert "sambanova_gemma_4_31b" in keys
+    assert "sambanova_minimax_m3_1_flash" in keys
+    assert "sambanova_glm_5_3" in keys
     assert "muse_glimmer_30b" not in keys
 
     # Check GLM is retired
@@ -160,15 +163,36 @@ def test_5_all_four_models_in_registry():
     assert set(gpt120.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
     # Check SambaNova models
+    assert settings.DEFAULT_SAMBANOVA_MODEL == "gpt-oss-120b"
     sb_coder = get_model("sambanova_coder")
     assert sb_coder.provider == "sambanova"
+    assert sb_coder.provider_model_id == "gpt-oss-120b"
     assert sb_coder.is_available is True
     assert set(sb_coder.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
     sb_reason = get_model("sambanova_reasoning")
     assert sb_reason.provider == "sambanova"
+    assert sb_reason.provider_model_id == "Meta-Llama-3.3-70B-Instruct"
     assert sb_reason.is_available is True
     assert set(sb_reason.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    sb_gemma = get_model("sambanova_gemma_4_31b")
+    assert sb_gemma.provider == "sambanova"
+    assert sb_gemma.provider_model_id == "gemma-4-31B-it"
+    assert sb_gemma.is_available is True
+    assert set(sb_gemma.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    sb_minimax = get_model("sambanova_minimax_m3_1_flash")
+    assert sb_minimax.provider == "sambanova"
+    assert sb_minimax.provider_model_id == "MiniMax-M3.1-Flash"
+    assert sb_minimax.is_available is True
+    assert set(sb_minimax.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    sb_glm = get_model("sambanova_glm_5_3")
+    assert sb_glm.provider == "sambanova"
+    assert sb_glm.provider_model_id == "GLM-5.3"
+    assert sb_glm.is_available is True
+    assert set(sb_glm.capabilities) == {"text", "reasoning", "tool_use", "agentic"}
 
     # Check capabilities match text-only specifications (no vision)
     nemotron = get_model("nemotron_3_5_lightning_30b_a3b")

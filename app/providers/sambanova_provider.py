@@ -5,8 +5,11 @@ Communicates with SambaNova Cloud via their OpenAI-compatible endpoint:
 https://api.sambanova.ai/v1
 
 Supports high-performance open weights models such as:
-- Qwen2.5-Coder-32B-Instruct
+- gpt-oss-120b
 - Meta-Llama-3.3-70B-Instruct
+- gemma-4-31B-it
+- MiniMax-M3.1-Flash
+- GLM-5.3
 
 Implements the BaseProvider contract and maps errors to typed exceptions:
 - ProviderRateLimitError (HTTP 429)

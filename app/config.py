@@ -47,7 +47,7 @@ class Settings:
     SAMBANOVA_API_KEY: str = os.environ.get("SAMBANOVA_API_KEY", "").strip()
     SAMBANOVA_BASE_URL: str = os.environ.get("SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1")
     SAMBANOVA_INFERENCE_TIMEOUT: float = float(os.environ.get("SAMBANOVA_INFERENCE_TIMEOUT", "85.0"))
-    DEFAULT_SAMBANOVA_MODEL: str = os.environ.get("DEFAULT_SAMBANOVA_MODEL", "Qwen2.5-Coder-32B-Instruct")
+    DEFAULT_SAMBANOVA_MODEL: str = os.environ.get("DEFAULT_SAMBANOVA_MODEL", "gpt-oss-120b")
     SAMBANOVA_REASONING_MODEL: str = os.environ.get("SAMBANOVA_REASONING_MODEL", "Meta-Llama-3.3-70B-Instruct")
 
     @classmethod
