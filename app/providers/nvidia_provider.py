@@ -52,7 +52,7 @@ class NVIDIAProvider(BaseProvider):
         model: Optional[str] = None,
         timeout: Optional[float] = None,
     ):
-        self.api_key = api_key if api_key is not None else settings.NVIDIA_API_KEY
+        self.api_key = api_key if api_key is not None else settings.get_nvidia_api_key()
         self.base_url = (base_url or settings.NVIDIA_BASE_URL).rstrip("/")
         self.model = model or settings.DEFAULT_NVIDIA_MODEL
         self.timeout = timeout if timeout is not None else settings.NVIDIA_INFERENCE_TIMEOUT

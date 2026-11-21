@@ -117,6 +117,8 @@ def test_4_nvidia_model_ids_correct():
     expected_ids = {
         "gpt_oss_20b": "openai/gpt-oss-20b",
         "nemotron_3_5_lightning_30b_a3b": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "nvidia_coder": "qwen/qwen2.5-coder-32b-instruct",
+        "nvidia_reasoning": "meta/llama-3.3-70b-instruct",
         "glm_5_3_flash": "z-ai/glm-5.3-flash",
         "gemma_4_31b_it": "google/gemma-4-31b-it",
         "qwen_3_8_27b": "Qwen/Qwen3.8-27B:fastest",
@@ -136,6 +138,8 @@ def test_5_all_four_models_in_registry():
     keys = {m.key for m in models}
     assert "gpt_oss_20b" in keys
     assert "nemotron_3_5_lightning_30b_a3b" in keys
+    assert "nvidia_coder" in keys
+    assert "nvidia_reasoning" in keys
     assert "gemma_4_31b_it" in keys
     assert "glm_5_3_flash" in keys
     assert "qwen_3_8_27b" in keys
@@ -150,6 +154,21 @@ def test_5_all_four_models_in_registry():
     # Check GLM is retired
     glm = get_model("glm_5_3_flash")
     assert glm.is_available is False, "Expected glm_5_3_flash to be retired (is_available=False)"
+
+    # Check NVIDIA models
+    assert settings.NVIDIA_CODER_MODEL == "qwen/qwen2.5-coder-32b-instruct"
+    assert settings.NVIDIA_REASONING_MODEL == "meta/llama-3.3-70b-instruct"
+    nv_coder = get_model("nvidia_coder")
+    assert nv_coder.provider == "nvidia"
+    assert nv_coder.provider_model_id == "qwen/qwen2.5-coder-32b-instruct"
+    assert nv_coder.is_available is True
+    assert set(nv_coder.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
+
+    nv_reason = get_model("nvidia_reasoning")
+    assert nv_reason.provider == "nvidia"
+    assert nv_reason.provider_model_id == "meta/llama-3.3-70b-instruct"
+    assert nv_reason.is_available is True
+    assert set(nv_reason.capabilities) == {"text", "reasoning", "coding", "tool_use", "agentic"}
 
     # Check Hugging Face models
     qwen = get_model("qwen_3_8_27b")

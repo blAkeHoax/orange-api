@@ -31,6 +31,13 @@ class Settings:
 
     # Temporary default model for Phase 6A only; capability-based selection deferred to Phase 6B/6C
     DEFAULT_NVIDIA_MODEL: str = os.environ.get("DEFAULT_NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+    NVIDIA_CODER_MODEL: str = os.environ.get("NVIDIA_CODER_MODEL", "qwen/qwen2.5-coder-32b-instruct")
+    NVIDIA_REASONING_MODEL: str = os.environ.get("NVIDIA_REASONING_MODEL", "meta/llama-3.3-70b-instruct")
+
+    @classmethod
+    def get_nvidia_api_key(cls) -> str:
+        """Resolve NVIDIA_API_KEY dynamically from environment or class settings."""
+        return (os.environ.get("NVIDIA_API_KEY") or getattr(cls, "NVIDIA_API_KEY", "") or "").strip()
 
     # Hugging Face Inference Providers configuration (https://router.huggingface.co/v1)
     HF_TOKEN: str = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_KEY") or ""

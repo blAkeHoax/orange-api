@@ -56,8 +56,8 @@ class RouteDecision:
 
 # Task specialization preference order (internal model keys evaluated in order of preference)
 _TASK_SPECIALIZATIONS: Dict[TaskType, List[str]] = {
-    TaskType.CODING: ["sambanova_coder", "qwen_3_8_27b", "nemotron_3_5_lightning_30b_a3b"],
-    TaskType.REASONING: ["sambanova_reasoning", "gpt_oss_120b", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.CODING: ["sambanova_coder", "qwen_3_8_27b", "nvidia_coder", "nemotron_3_5_lightning_30b_a3b"],
+    TaskType.REASONING: ["sambanova_reasoning", "gpt_oss_120b", "nvidia_reasoning", "nemotron_3_5_lightning_30b_a3b"],
     TaskType.AGENT_DECISION: ["nemotron_3_5_lightning_30b_a3b"],
     TaskType.JOB_STEP: ["nemotron_3_5_lightning_30b_a3b"],
     TaskType.VIDEO_ANALYSIS: ["gemma_4_31b_it"],
@@ -81,6 +81,8 @@ _STATIC_PRIORITY_ORDER: List[str] = [
     "nemotron_3_5_lightning_30b_a3b",
     "sambanova_coder",
     "sambanova_reasoning",
+    "nvidia_coder",
+    "nvidia_reasoning",
     "sambanova_gemma_4_31b",
     "sambanova_minimax_m3_1_flash",
     "sambanova_glm_5_3",
@@ -296,9 +298,11 @@ class IntelligenceRouter:
             structured_order = [
                 "sambanova_coder",
                 "qwen_3_8_27b",
+                "nvidia_coder",
                 "nemotron_3_5_lightning_30b_a3b",
                 "gpt_oss_120b",
                 "sambanova_reasoning",
+                "nvidia_reasoning",
                 "sambanova_gemma_4_31b",
                 "sambanova_minimax_m3_1_flash",
                 "sambanova_glm_5_3",

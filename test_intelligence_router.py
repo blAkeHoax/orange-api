@@ -166,14 +166,15 @@ class TestIntelligenceRouter(unittest.TestCase):
         self.assertIn("conversational", decision.reason.lower())
 
     def test_coding_routing_nemotron_when_gemma_unavailable(self):
-        """Verify normal coding task routes to Nemotron when Gemma is unavailable."""
-        req = AssistRequest(message="debug this Python function:\ndef test(): pass")
-        profile = build_task_profile(req)
-        decision = self.router.route(profile)
-        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
-        self.assertNotEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
-        self.assertNotEqual(decision.selected_model_key, "gemma_4_31b_it")
+        """Verify normal coding task routes to nvidia_coder when Gemma is unavailable and HF/SambaNova unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
+            req = AssistRequest(message="debug this Python function:\ndef test(): pass")
+            profile = build_task_profile(req)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "nvidia_coder")
+            self.assertEqual(decision.provider_model_id, settings.NVIDIA_CODER_MODEL)
+            self.assertNotEqual(decision.selection_step, "EXPLICIT_OVERRIDE")
+            self.assertNotEqual(decision.selected_model_key, "gemma_4_31b_it")
 
     def test_agent_decision_routing_nemotron(self):
         req = AssistRequest(message="Analyze state and decide tool", task_type="agent_decision")
@@ -199,6 +200,7 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_inferred.provider_model_id, settings.DEFAULT_SAMBANOVA_MODEL)
             self.assertEqual(decision_inferred.selection_step, "TASK_SPECIALIZATION")
             self.assertIn("qwen_3_8_27b", decision_inferred.fallback_candidates)
+            self.assertIn("nvidia_coder", decision_inferred.fallback_candidates)
             self.assertIn("nemotron_3_5_lightning_30b_a3b", decision_inferred.fallback_candidates)
 
             # Explicit coding task_type
@@ -219,6 +221,7 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_inferred.selected_model_key, "qwen_3_8_27b")
             self.assertEqual(decision_inferred.provider_model_id, "Qwen/Qwen3.8-27B:fastest")
             self.assertEqual(decision_inferred.selection_step, "TASK_SPECIALIZATION")
+            self.assertIn("nvidia_coder", decision_inferred.fallback_candidates)
             self.assertIn("nemotron_3_5_lightning_30b_a3b", decision_inferred.fallback_candidates)
 
             # Explicit coding task_type
@@ -230,13 +233,13 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
 
     def test_coding_routing_nemotron_when_hf_unset(self):
-        """Verify coding task falls back to Nemotron when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+        """Verify coding task routes to nvidia_coder when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
         with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="debug this Python function:\ndef test(): pass")
             profile = build_task_profile(req)
             decision = self.router.route(profile)
-            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-            self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+            self.assertEqual(decision.selected_model_key, "nvidia_coder")
+            self.assertEqual(decision.provider_model_id, settings.NVIDIA_CODER_MODEL)
 
     def test_reasoning_routing_sambanova_when_sambanova_configured(self):
         """Verify complex reasoning & briefing synthesis automatically route to SambaNova Llama 3.3 70B."""
@@ -259,6 +262,7 @@ class TestIntelligenceRouter(unittest.TestCase):
                     self.assertEqual(decision.provider_model_id, settings.SAMBANOVA_REASONING_MODEL)
                     self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
                     self.assertIn("gpt_oss_120b", decision.fallback_candidates)
+                    self.assertIn("nvidia_reasoning", decision.fallback_candidates)
                     self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
 
             # Explicit task_type="reasoning"
@@ -289,6 +293,7 @@ class TestIntelligenceRouter(unittest.TestCase):
                     self.assertEqual(decision.selected_model_key, "gpt_oss_120b")
                     self.assertEqual(decision.provider_model_id, "openai/gpt-oss-120b:fastest")
                     self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
+                    self.assertIn("nvidia_reasoning", decision.fallback_candidates)
                     self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
 
             # Explicit task_type="reasoning"
@@ -299,13 +304,13 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
 
     def test_reasoning_routing_nemotron_when_hf_unset(self):
-        """Verify reasoning/briefing synthesis falls back to Nemotron when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+        """Verify reasoning/briefing synthesis routes to nvidia_reasoning when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
         with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="Synthesize the morning briefing for today.")
             profile = build_task_profile(req)
             decision = self.router.route(profile)
-            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-            self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+            self.assertEqual(decision.selected_model_key, "nvidia_reasoning")
+            self.assertEqual(decision.provider_model_id, settings.NVIDIA_REASONING_MODEL)
 
     def test_structured_output_routing_to_sambanova_when_sambanova_configured(self):
         """Verify structured output requests route to SambaNova Coder when SAMBANOVA_API_KEY is configured."""
@@ -330,14 +335,15 @@ class TestIntelligenceRouter(unittest.TestCase):
             self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
 
     def test_structured_output_routing_falls_back_to_nemotron_when_hf_unset(self):
-        """Verify structured output requests fall back to Nemotron when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
+        """Verify structured output requests route to nvidia_coder when HF_TOKEN and SAMBANOVA_API_KEY are unset."""
         with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             req = AssistRequest(message="Extract user contacts and return as valid json")
             profile = build_task_profile(req)
             self.assertTrue(profile.requires_structured_output)
             decision = self.router.route(profile)
-            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-            self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+            self.assertEqual(decision.selected_model_key, "nvidia_coder")
+            self.assertEqual(decision.provider_model_id, settings.NVIDIA_CODER_MODEL)
+            self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
             self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
 
     def test_agent_decision_and_job_step_pinned_to_nemotron_with_hf_configured(self):
@@ -543,9 +549,15 @@ class TestIntelligenceRouter(unittest.TestCase):
                 self.router.route(profile)
 
     def test_eligible_explicit_overrides_succeed(self):
-        """Verify eligible explicit overrides for Nemotron, Qwen, and GPT-OSS-120B all succeed."""
+        """Verify eligible explicit overrides for Nemotron, NVIDIA coder/reasoning, Qwen, and GPT-OSS-120B all succeed."""
         with patch.dict(os.environ, {"HF_TOKEN": "test-token", "SAMBANOVA_API_KEY": ""}):
-            for model_key in ["nemotron_3_5_lightning_30b_a3b", "qwen_3_8_27b", "gpt_oss_120b"]:
+            for model_key in [
+                "nemotron_3_5_lightning_30b_a3b",
+                "nvidia_coder",
+                "nvidia_reasoning",
+                "qwen_3_8_27b",
+                "gpt_oss_120b",
+            ]:
                 req = AssistRequest(message="Hello there", model=model_key)
                 profile = build_task_profile(req)
                 decision = self.router.route(profile)
@@ -626,7 +638,8 @@ class TestIntelligenceRouter(unittest.TestCase):
             profile = build_task_profile(req)
             decision = self.router.route(profile)
             self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
-            self.assertEqual(decision.fallback_candidates, [])
+            self.assertIn("nvidia_coder", decision.fallback_candidates)
+            self.assertIn("nvidia_reasoning", decision.fallback_candidates)
 
 
 class TestAPIEndpointRouting(unittest.TestCase):
@@ -648,14 +661,14 @@ class TestAPIEndpointRouting(unittest.TestCase):
         self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_coding_routes_to_nemotron(self, mock_generate):
+    def test_api_coding_routes_to_nvidia_coder(self, mock_generate):
         mock_generate.return_value = "Fixed the syntax error."
 
-        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             resp = self.client.post("/assist", json={"message": "debug this python code: def foo(): return 1"})
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
-            self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+            self.assertIn(settings.NVIDIA_CODER_MODEL, data["model"])
             self.assertNotIn("google/gemma-4-31b-it", data["model"])
             mock_generate.assert_called_once()
 
@@ -682,14 +695,14 @@ class TestAPIEndpointRouting(unittest.TestCase):
             mock_generate.assert_called_once()
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
-    def test_api_reasoning_falls_back_to_nemotron_when_hf_unset(self, mock_generate):
-        mock_generate.return_value = "Morning briefing synthesized via Nemotron."
+    def test_api_reasoning_routes_to_nvidia_reasoning_when_hf_unset(self, mock_generate):
+        mock_generate.return_value = "Morning briefing synthesized via Llama 3.3."
 
-        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": ""}):
             resp = self.client.post("/assist", json={"message": "Synthesize the morning briefing for today."})
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
-            self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+            self.assertIn(settings.NVIDIA_REASONING_MODEL, data["model"])
             mock_generate.assert_called_once()
 
     @patch("app.providers.huggingface_provider.HuggingFaceProvider.generate")
@@ -815,6 +828,53 @@ class TestAPIEndpointRouting(unittest.TestCase):
             )
             self.assertEqual(resp.status_code, 400)
             self.assertIn("unconfigured or unavailable", resp.json()["detail"])
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_explicit_override_nvidia_models(self, mock_generate):
+        mock_generate.return_value = "NVIDIA multi-model response."
+        models_to_test = [
+            ("nvidia_coder", settings.NVIDIA_CODER_MODEL),
+            ("nvidia_reasoning", settings.NVIDIA_REASONING_MODEL),
+            ("nemotron_3_5_lightning_30b_a3b", settings.DEFAULT_NVIDIA_MODEL),
+        ]
+        with patch.dict(os.environ, {"NVIDIA_API_KEY": "test-nv-key"}):
+            for model_key, expected_provider_id in models_to_test:
+                resp = self.client.post(
+                    "/assist",
+                    json={"message": "Analyze prompt", "model": model_key},
+                )
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                self.assertEqual(data["model"], f"nvidia:{expected_provider_id}")
+                self.assertEqual(data["reply"], "NVIDIA multi-model response.")
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_nvidia_task_routing_when_only_nvidia_configured(self, mock_generate):
+        mock_generate.return_value = "Task routed response."
+        with patch.dict(os.environ, {"HF_TOKEN": "", "SAMBANOVA_API_KEY": "", "NVIDIA_API_KEY": "test-nv-key"}):
+            # Coding -> nvidia_coder
+            resp_code = self.client.post(
+                "/assist",
+                json={"message": "Write a quicksort in python", "task_type": "coding"},
+            )
+            self.assertEqual(resp_code.status_code, 200)
+            self.assertEqual(resp_code.json()["model"], f"nvidia:{settings.NVIDIA_CODER_MODEL}")
+
+            # Reasoning -> nvidia_reasoning
+            resp_reason = self.client.post(
+                "/assist",
+                json={"message": "Synthesize the morning briefing", "task_type": "reasoning"},
+            )
+            self.assertEqual(resp_reason.status_code, 200)
+            self.assertEqual(resp_reason.json()["model"], f"nvidia:{settings.NVIDIA_REASONING_MODEL}")
+
+            # Conversational -> nemotron_3_5_lightning_30b_a3b
+            resp_chat = self.client.post(
+                "/assist",
+                json={"message": "Hello how are you?", "task_type": "conversational"},
+            )
+            self.assertEqual(resp_chat.status_code, 200)
+            self.assertEqual(resp_chat.json()["model"], f"nvidia:{settings.DEFAULT_NVIDIA_MODEL}")
 
     def test_api_invalid_modality_returns_400(self):
         resp = self.client.post(
