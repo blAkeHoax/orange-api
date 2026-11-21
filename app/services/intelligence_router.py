@@ -56,11 +56,13 @@ class RouteDecision:
 
 # Canonical role specialization mapping (internal model keys only)
 _CANONICAL_SPECIALIZATIONS: Dict[TaskType, str] = {
-    TaskType.CODING: "gemma_4_31b_it",
+    TaskType.CODING: "qwen_3_8_27b",
+    TaskType.REASONING: "gpt_oss_120b",
     TaskType.AGENT_DECISION: "nemotron_3_5_lightning_30b_a3b",
     TaskType.JOB_STEP: "nemotron_3_5_lightning_30b_a3b",
     TaskType.VIDEO_ANALYSIS: "gemma_4_31b_it",
     TaskType.CONVERSATIONAL: "nemotron_3_5_lightning_30b_a3b",
+    TaskType.GENERAL: "nemotron_3_5_lightning_30b_a3b",
 }
 
 # Static deterministic tie-break ordering across the four-model foundation and legacy models
@@ -87,10 +89,18 @@ class IntelligenceRouter:
         """
         Verify if the model's provider is currently configured and available.
         If a custom active_provider was explicitly injected into LLMService/Router,
-        we treat provider availability as satisfied.
+        we verify against its provider name or fallback to the provider factory.
         """
         eff_provider = active_provider or self.active_provider
         if eff_provider is not None:
+            prov_name = getattr(eff_provider, "name", None)
+            if isinstance(prov_name, str) and prov_name != model_info.provider:
+                try:
+                    from app.providers.factory import get_provider
+                    p = get_provider(model_info.provider)
+                    return p.is_available()
+                except Exception:
+                    return False
             return True
         try:
             from app.providers.factory import get_provider
@@ -229,15 +239,22 @@ class IntelligenceRouter:
         # ==========================================================
         # Step 4: Task Specialization Match
         # ==========================================================
-        specialized_key = _CANONICAL_SPECIALIZATIONS.get(profile.task_type)
-        if specialized_key:
-            matching = [m for m in sorted_candidates if m.key == specialized_key]
-            if matching:
-                return make_decision(
-                    chosen=matching[0],
-                    reason=f"Step 4: Task Specialization Match for '{profile.task_type.value}'",
-                    step="TASK_SPECIALIZATION",
-                )
+        # If task requires structured output and is conversational/general,
+        # skip conversational default in Step 4 so Step 6 structured-output preference applies.
+        skip_step4_specialization = (
+            profile.requires_structured_output
+            and profile.task_type in (TaskType.CONVERSATIONAL, TaskType.GENERAL)
+        )
+        if not skip_step4_specialization:
+            specialized_key = _CANONICAL_SPECIALIZATIONS.get(profile.task_type)
+            if specialized_key:
+                matching = [m for m in sorted_candidates if m.key == specialized_key]
+                if matching:
+                    return make_decision(
+                        chosen=matching[0],
+                        reason=f"Step 4: Task Specialization Match for '{profile.task_type.value}'",
+                        step="TASK_SPECIALIZATION",
+                    )
 
         # ==========================================================
         # Step 5: Preferred Capability Match
@@ -261,8 +278,8 @@ class IntelligenceRouter:
         # ==========================================================
         if profile.requires_structured_output:
             structured_order = [
-                "nemotron_3_5_lightning_30b_a3b",
                 "qwen_3_8_27b",
+                "nemotron_3_5_lightning_30b_a3b",
                 "gpt_oss_120b",
                 "gemma_4_31b_it",
                 "glm_5_3_flash",

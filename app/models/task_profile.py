@@ -19,6 +19,8 @@ class TaskType(str, Enum):
     AGENT_DECISION = "agent_decision"
     JOB_STEP = "job_step"
     VIDEO_ANALYSIS = "video_analysis"
+    REASONING = "reasoning"
+    GENERAL = "general"
 
 
 class LatencyPreference(str, Enum):

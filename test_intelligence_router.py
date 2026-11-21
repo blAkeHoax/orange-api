@@ -107,6 +107,48 @@ class TestTaskProfileBuilder(unittest.TestCase):
         profile = build_task_profile(req)
         self.assertEqual(profile.task_type, TaskType.CONVERSATIONAL)
 
+    def test_task_type_explicit_reasoning_and_general(self):
+        req_reasoning = AssistRequest(message="analyze", task_type="reasoning")
+        profile_reasoning = build_task_profile(req_reasoning)
+        self.assertEqual(profile_reasoning.task_type, TaskType.REASONING)
+        self.assertEqual(profile_reasoning.required_capabilities, frozenset({"text", "reasoning"}))
+        self.assertEqual(profile_reasoning.preferred_capabilities, frozenset({"coding", "tool_use"}))
+
+        req_general = AssistRequest(message="general inquiry", task_type="general")
+        profile_general = build_task_profile(req_general)
+        self.assertEqual(profile_general.task_type, TaskType.GENERAL)
+
+    def test_task_type_inferred_reasoning_signals(self):
+        reasoning_prompts = [
+            "Synthesize the morning briefing for today.",
+            "Please generate the daily briefing from my notes.",
+            "Draft an executive summary of the quarterly metrics.",
+            "Provide an architectural comparison of monolith vs microservices.",
+            "What are the architectural trade-offs of using GraphQL?",
+            "Provide a deep analysis of this race condition.",
+            "Perform a root cause analysis for the outage.",
+            "Show me a step-by-step reasoning for this math problem.",
+        ]
+        for prompt in reasoning_prompts:
+            with self.subTest(prompt=prompt):
+                req = AssistRequest(message=prompt)
+                profile = build_task_profile(req)
+                self.assertEqual(profile.task_type, TaskType.REASONING)
+                self.assertIn("reasoning", profile.required_capabilities)
+
+    def test_structured_output_signal_detection(self):
+        structured_prompts = [
+            "Extract user contacts and return as valid json",
+            "Generate structured output with id and name",
+            "Output in json format only",
+            "Parse log entries and return json schema",
+        ]
+        for prompt in structured_prompts:
+            with self.subTest(prompt=prompt):
+                req = AssistRequest(message=prompt)
+                profile = build_task_profile(req)
+                self.assertTrue(profile.requires_structured_output)
+
 
 class TestIntelligenceRouter(unittest.TestCase):
     """Test 7-step hierarchy routing and error handling."""
@@ -141,6 +183,115 @@ class TestIntelligenceRouter(unittest.TestCase):
 
     def test_job_step_routing_nemotron(self):
         req = AssistRequest(message="Execute step 3", task_type="job_step")
+        profile = build_task_profile(req)
+        decision = self.router.route(profile)
+        self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+        self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+
+    def test_coding_routing_qwen_when_hf_configured(self):
+        """Verify coding task automatically routes to Qwen 3.8 27B when HF_TOKEN is configured."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            # Inferred coding prompt
+            req_inferred = AssistRequest(message="debug this Python function:\ndef test(): pass")
+            profile_inferred = build_task_profile(req_inferred)
+            decision_inferred = self.router.route(profile_inferred)
+            self.assertEqual(decision_inferred.selected_model_key, "qwen_3_8_27b")
+            self.assertEqual(decision_inferred.provider_model_id, "Qwen/Qwen3.8-27B:fastest")
+            self.assertEqual(decision_inferred.selection_step, "TASK_SPECIALIZATION")
+            self.assertIn("nemotron_3_5_lightning_30b_a3b", decision_inferred.fallback_candidates)
+
+            # Explicit coding task_type
+            req_explicit = AssistRequest(message="write function", task_type="coding")
+            profile_explicit = build_task_profile(req_explicit)
+            decision_explicit = self.router.route(profile_explicit)
+            self.assertEqual(decision_explicit.selected_model_key, "qwen_3_8_27b")
+            self.assertEqual(decision_explicit.provider_model_id, "Qwen/Qwen3.8-27B:fastest")
+            self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
+
+    def test_coding_routing_nemotron_when_hf_unset(self):
+        """Verify coding task falls back to Nemotron when HF_TOKEN is unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            req = AssistRequest(message="debug this Python function:\ndef test(): pass")
+            profile = build_task_profile(req)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+            self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+
+    def test_reasoning_routing_gpt_oss_120b_when_hf_configured(self):
+        """Verify complex reasoning & briefing synthesis automatically route to GPT-OSS 120B."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            prompts = [
+                "Synthesize the morning briefing for today.",
+                "Please generate the daily briefing from my notes.",
+                "Draft an executive summary of this quarterly review.",
+                "Provide an architectural comparison between monolith and microservices.",
+                "What are the architectural trade-offs of using event sourcing?",
+                "Provide a deep analysis of this distributed deadlock.",
+            ]
+            for prompt in prompts:
+                with self.subTest(prompt=prompt):
+                    req = AssistRequest(message=prompt)
+                    profile = build_task_profile(req)
+                    self.assertEqual(profile.task_type, TaskType.REASONING)
+                    decision = self.router.route(profile)
+                    self.assertEqual(decision.selected_model_key, "gpt_oss_120b")
+                    self.assertEqual(decision.provider_model_id, "openai/gpt-oss-120b:fastest")
+                    self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
+                    self.assertIn("nemotron_3_5_lightning_30b_a3b", decision.fallback_candidates)
+
+            # Explicit task_type="reasoning"
+            req_explicit = AssistRequest(message="Analyze bottleneck options", task_type="reasoning")
+            profile_explicit = build_task_profile(req_explicit)
+            decision_explicit = self.router.route(profile_explicit)
+            self.assertEqual(decision_explicit.selected_model_key, "gpt_oss_120b")
+            self.assertEqual(decision_explicit.selection_step, "TASK_SPECIALIZATION")
+
+    def test_reasoning_routing_nemotron_when_hf_unset(self):
+        """Verify reasoning/briefing synthesis falls back to Nemotron when HF_TOKEN is unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            req = AssistRequest(message="Synthesize the morning briefing for today.")
+            profile = build_task_profile(req)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+            self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+
+    def test_structured_output_routing_to_qwen_when_hf_configured(self):
+        """Verify structured output requests route to Qwen 3.8 27B when HF_TOKEN is configured."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            req = AssistRequest(message="Extract user contacts and return as valid json")
+            profile = build_task_profile(req)
+            self.assertTrue(profile.requires_structured_output)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "qwen_3_8_27b")
+            self.assertEqual(decision.provider_model_id, "Qwen/Qwen3.8-27B:fastest")
+            self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
+
+    def test_structured_output_routing_falls_back_to_nemotron_when_hf_unset(self):
+        """Verify structured output requests fall back to Nemotron when HF_TOKEN is unset."""
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            req = AssistRequest(message="Extract user contacts and return as valid json")
+            profile = build_task_profile(req)
+            self.assertTrue(profile.requires_structured_output)
+            decision = self.router.route(profile)
+            self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+            self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+            self.assertEqual(decision.selection_step, "STRUCTURED_OUTPUT_PREFERENCE")
+
+    def test_agent_decision_and_job_step_pinned_to_nemotron_with_hf_configured(self):
+        """Verify agent_decision and job_step remain pinned to low-latency Nemotron even when HF is configured."""
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            for t_type in ["agent_decision", "job_step"]:
+                with self.subTest(task_type=t_type):
+                    req = AssistRequest(message="Execute step", task_type=t_type)
+                    profile = build_task_profile(req)
+                    decision = self.router.route(profile)
+                    self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
+                    self.assertEqual(decision.provider_model_id, "nvidia/nemotron-3.5-lightning-30b-a3b")
+                    self.assertEqual(decision.selection_step, "TASK_SPECIALIZATION")
+
+    def test_general_task_routes_to_nemotron(self):
+        """Verify general task archetype routes to Nemotron."""
+        req = AssistRequest(message="Hello general assistance", task_type="general")
         profile = build_task_profile(req)
         decision = self.router.route(profile)
         self.assertEqual(decision.selected_model_key, "nemotron_3_5_lightning_30b_a3b")
@@ -362,12 +513,57 @@ class TestAPIEndpointRouting(unittest.TestCase):
     def test_api_coding_routes_to_nemotron(self, mock_generate):
         mock_generate.return_value = "Fixed the syntax error."
 
-        resp = self.client.post("/assist", json={"message": "debug this python code: def foo(): return 1"})
-        self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
-        self.assertNotIn("google/gemma-4-31b-it", data["model"])
-        mock_generate.assert_called_once()
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            resp = self.client.post("/assist", json={"message": "debug this python code: def foo(): return 1"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+            self.assertNotIn("google/gemma-4-31b-it", data["model"])
+            mock_generate.assert_called_once()
+
+    @patch("app.providers.huggingface_provider.HuggingFaceProvider.generate")
+    def test_api_coding_routes_to_qwen_when_hf_configured(self, mock_generate):
+        mock_generate.return_value = "Fixed with Qwen."
+
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            resp = self.client.post("/assist", json={"message": "debug this python code: def foo(): return 1"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("Qwen/Qwen3.8-27B:fastest", data["model"])
+            mock_generate.assert_called_once()
+
+    @patch("app.providers.huggingface_provider.HuggingFaceProvider.generate")
+    def test_api_reasoning_routes_to_gpt_oss_when_hf_configured(self, mock_generate):
+        mock_generate.return_value = "Morning briefing synthesized."
+
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            resp = self.client.post("/assist", json={"message": "Synthesize the morning briefing for today."})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("openai/gpt-oss-120b:fastest", data["model"])
+            mock_generate.assert_called_once()
+
+    @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
+    def test_api_reasoning_falls_back_to_nemotron_when_hf_unset(self, mock_generate):
+        mock_generate.return_value = "Morning briefing synthesized via Nemotron."
+
+        with patch.dict(os.environ, {"HF_TOKEN": ""}):
+            resp = self.client.post("/assist", json={"message": "Synthesize the morning briefing for today."})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("nvidia/nemotron-3.5-lightning-30b-a3b", data["model"])
+            mock_generate.assert_called_once()
+
+    @patch("app.providers.huggingface_provider.HuggingFaceProvider.generate")
+    def test_api_structured_output_routes_to_qwen_when_hf_configured(self, mock_generate):
+        mock_generate.return_value = '{"users": []}'
+
+        with patch.dict(os.environ, {"HF_TOKEN": "test-hf-token"}):
+            resp = self.client.post("/assist", json={"message": "Extract items and return as valid json"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("Qwen/Qwen3.8-27B:fastest", data["model"])
+            mock_generate.assert_called_once()
 
     @patch("app.providers.nvidia_provider.NVIDIAProvider.generate")
     def test_api_agent_decision_routes_to_nemotron(self, mock_generate):

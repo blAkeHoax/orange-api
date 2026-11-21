@@ -35,6 +35,36 @@ _CODING_PATTERNS = [
 
 _COMPILED_CODING_REGEX = re.compile("|".join(_CODING_PATTERNS), re.IGNORECASE)
 
+_REASONING_PATTERNS = [
+    r"\b(?:morning|daily|executive|evening)\s+briefing\b",
+    r"\bexecutive\s+summary\b",
+    r"\bbriefing\s+synthesis\b",
+    r"\bsynthesiz(?:e|is|ing)\b",
+    r"\bdeep\s+analysis\b",
+    r"\bcomplex\s+reasoning\b",
+    r"\broot\s+cause\s+analysis\b",
+    r"\barchitectural\s+(?:analysis|comparison|decision|design|evaluation|review|trade-?offs?)\b",
+    r"\barchitecture\s+review\b",
+    r"\btrade-?offs?\b",
+    r"\bcomparative\s+analysis\b",
+    r"\bstep-by-step\s+reasoning\b",
+    r"\bchain\s+of\s+thought\b",
+    r"\bpros\s+and\s+cons\b",
+    r"\bevaluate\s+(?:the\s+)?options\b",
+]
+
+_COMPILED_REASONING_REGEX = re.compile("|".join(_REASONING_PATTERNS), re.IGNORECASE)
+
+_STRUCTURED_OUTPUT_PATTERNS = [
+    r"\bstructured\s+output\b",
+    r"\boutput\s+(?:in|as)\s+json\b",
+    r"\breturn\s+(?:only\s+)?json\b",
+    r"\bjson\s+(?:schema|format|payload|object)\b",
+    r"\bvalid\s+json\b",
+]
+
+_COMPILED_STRUCTURED_REGEX = re.compile("|".join(_STRUCTURED_OUTPUT_PATTERNS), re.IGNORECASE)
+
 
 def normalize_modalities(modalities: Optional[List[str]]) -> frozenset[str]:
     """
@@ -90,10 +120,15 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         # Infer deterministically from modalities and prompt content
         if "video" in modalities:
             resolved_task_type = TaskType.VIDEO_ANALYSIS
+        elif _COMPILED_REASONING_REGEX.search(request.message):
+            resolved_task_type = TaskType.REASONING
         elif _COMPILED_CODING_REGEX.search(request.message):
             resolved_task_type = TaskType.CODING
         else:
             resolved_task_type = TaskType.CONVERSATIONAL
+
+    if _COMPILED_STRUCTURED_REGEX.search(request.message):
+        requires_structured_output = True
 
     # 3. Formulate required capabilities based on resolved TaskType
     required_caps: Set[str] = set()
@@ -110,6 +145,10 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         is_persistent_job = True
         preferred_caps = {"coding"}
 
+    elif resolved_task_type == TaskType.REASONING:
+        required_caps = {"text", "reasoning"}
+        preferred_caps = {"coding", "tool_use"}
+
     elif resolved_task_type == TaskType.CODING:
         required_caps = {"text", "reasoning", "coding"}
         preferred_caps = {"tool_use"}
@@ -119,7 +158,7 @@ def build_task_profile(request: AssistRequest) -> TaskProfile:
         if "video" not in modalities:
             modalities = frozenset(set(modalities) | {"video"})
 
-    else:  # TaskType.CONVERSATIONAL
+    else:  # TaskType.CONVERSATIONAL, TaskType.GENERAL
         required_caps = {"text", "reasoning"}
 
     # Include non-text modalities in required capabilities
